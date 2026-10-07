@@ -25,11 +25,11 @@ const GATE_TIMEOUT_MS = 800;
 
 // Any ONE of these opening is enough. They are deliberately low: the point is to
 // drop the empty periodic ticks, not to be clever about which moment it is.
-const WORTH_MIN = 0.35;
-const ASKED_MIN = 0.50;
-const PUSHBACK_MIN = 0.40;
+export const WORTH_MIN = 0.35;
+export const ASKED_MIN = 0.50;
+export const PUSHBACK_MIN = 0.40;
 
-const QUESTIONS: Record<string, JevQuestion> = {
+export const QUESTIONS: Record<string, JevQuestion> = {
   worth_coaching: {
     type: 'noul',
     instructions:
