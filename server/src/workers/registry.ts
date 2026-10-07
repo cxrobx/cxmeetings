@@ -148,6 +148,24 @@ export class WorkerRegistry extends EventEmitter {
     return Array.from(this.actions.values());
   }
 
+  /**
+   * A new meeting starts with no cards. Finished actions (completed, failed,
+   * cancelled, expired) are forgotten, so the live dashboard, which fetches
+   * every action on each socket (re)connect, cannot show an earlier meeting's
+   * cards. Anything still suggested, approved, queued or running is kept: it
+   * is still owned by whoever is waiting on it. Returns how many were dropped.
+   */
+  forgetFinished(): number {
+    let dropped = 0;
+    for (const [id, action] of this.actions) {
+      if (action.state === 'completed' || action.state === 'failed' || action.state === 'cancelled' || action.state === 'expired') {
+        this.actions.delete(id);
+        dropped++;
+      }
+    }
+    return dropped;
+  }
+
   getActionsByState(
     state: ActionLifecycle['state'],
   ): ActionLifecycle[] {

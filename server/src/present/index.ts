@@ -2222,7 +2222,7 @@ export const PRESENT_HTML = `<!DOCTYPE html>
   .card.collapsed.has-finding .card-finding { display: block; }
   .card.collapsed .card-expand { opacity: 0; }
   .card.collapsed:hover .card-expand, .card.collapsed .card-expand:focus-visible { opacity: 1; }
-  .disc-caret { flex-shrink: 0; width: 12px; text-align: center; color: var(--gb-overlay2); font-size: 13px; line-height: 1; transition: transform 0.15s; }
+  .disc-caret { flex-shrink: 0; width: 14px; text-align: center; color: var(--gb-subtext0); font-size: 18px; line-height: 1; transition: transform 0.15s; }
   .card:not(.collapsed) .disc-caret { transform: rotate(90deg); }
   .card.unread > .card-header::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: rgb(var(--accent)); flex-shrink: 0; }
   .disc-updated { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: rgb(var(--accent)); flex-shrink: 0; }
@@ -2440,6 +2440,11 @@ export const PRESENT_HTML = `<!DOCTYPE html>
     overflow-x: hidden;
     resize: vertical;
   }
+  /* A finished card's box fits its answer, up to the default 340px; a short
+     answer used to sit in a mostly empty box. Streaming boxes keep the fixed
+     height (the text grows into it without the card jumping), and once the
+     edge is dragged the inline height wins as before. */
+  .card-scroll.fit:not([style^="height"]):not([style*="; height"]) { height: auto; min-height: 0; max-height: 340px; }
   .card-body a { color: var(--gb-blue); text-decoration: none; }
   .card-body a:hover { text-decoration: underline; }
   .card-body pre { background: var(--gb-surface1); border: 1px solid var(--gb-surface2); border-radius: 5px; padding: 12px; overflow-x: auto; margin: 10px 0; font-size: 12px; line-height: 1.5; }
@@ -6067,7 +6072,7 @@ export const PRESENT_HTML = `<!DOCTYPE html>
         var caret = document.createElement('span');
         caret.className = 'disc-caret';
         caret.setAttribute('aria-hidden', 'true');
-        caret.textContent = '\\u25B8';
+        caret.textContent = '\\u203A';
         hdr.appendChild(caret);
       }
       if (collapsible) {
@@ -9051,9 +9056,9 @@ export const PRESENT_HTML = `<!DOCTYPE html>
         '</div>';
       }
     } else if (action.state !== 'failed' && action.result && action.result.artifacts && action.result.artifacts.length > 0) {
-      body = '<div class="card-body card-scroll">' + renderArtifactsInner(action) + '</div>';
+      body = '<div class="card-body card-scroll fit">' + renderArtifactsInner(action) + '</div>';
     } else if (action.state !== 'failed' && action.result && action.result.summary) {
-      body = '<div class="card-body card-scroll"><p>' + escapeHtml(action.result.summary) + '</p></div>';
+      body = '<div class="card-body card-scroll fit"><p>' + escapeHtml(action.result.summary) + '</p></div>';
     } else if (action.state === 'failed') {
       // Failed results carry a descriptive summary ("Research failed: …") — show
       // it, and ALWAYS render Retry (this branch must win over the summary branch

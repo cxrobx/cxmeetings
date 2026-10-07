@@ -4,6 +4,11 @@ All notable changes to Meeting Copilot will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- A live dashboard that reconnected mid-meeting showed every earlier meeting's cards since the server started: the action registry outlived meetings. A new meeting now forgets the finished ones (`WorkerRegistry.forgetFinished`); anything still waiting or running is kept.
+- A finished card's answer box fits its text, up to the old 340px, instead of always taking 340px. Streaming cards keep the fixed height, and a box you have resized keeps your size.
+
 ### Added
 
 - **A quieter middle column.** Finished cards fold to one-line rows; a research or analysis row shows the answer's first sentence instead of the question. The newest finished card opens on its own and the one before folds, unless you opened it yourself. Suggestions waiting for approval, running cards (with Cancel) and failed cards (with Retry) never fold. A row that changes after it folds, like Deep research adding a section, gets an **updated** tag, and clicking an Outline entry opens the card before jumping to it. A **Quiet / Glance / Full** dial in the coach head (⌃⌥0 cycles) sets how much shows: Quiet is the coach line, approvals and running work; Full is every card open, as before. Replay is always Full. Quick Actions shrink to one line, with Summary, Analysis, Mockup and Code under **More**. The coach card's reason sits behind **Why?**, and the Listening status is a dot in the coach head (its text is the tooltip). Optional: **Settings → Cards → Show a filter bar** adds chips for All, Unread and each card type. New e2e spec `10-disclosure` (13 specs in the ship gate).

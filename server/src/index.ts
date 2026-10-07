@@ -953,6 +953,10 @@ async function handleInboundMessage(message: InboundMessage): Promise<void> {
       lastSessionId = null;
       pauseClock.reset();
 
+      // The last meeting's finished cards stay in its session DB, not here.
+      const forgotten = registry.forgetFinished();
+      if (forgotten) debugLog(`[Session] Dropped ${forgotten} finished action(s) from the previous meeting`);
+
       // Create new session
       sessionStore = new SessionStore();
       sessionStore.createSession(message.title ?? '', message.projectNames ?? [], message.agenda, message.attendees);

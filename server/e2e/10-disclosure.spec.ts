@@ -104,6 +104,8 @@ test('live cards fold to rows, the dial hides and shows them, and the optional f
     await finishCard(page, 'e2e-c3', 'analysis', 'Deal risk', 'The risk is the owner, not the budget. Nobody has said who signs.');
     const c3 = page.locator('#action-e2e-c3');
     await expect(c3.locator('.card-body')).toBeVisible();
+    // A finished card's box fits a short answer instead of a fixed 340px.
+    expect((await c3.locator('.card-body').boundingBox())!.height).toBeLessThan(120);
     await expect(c1.locator('.card-body')).toBeVisible();
     await expect(c2).toHaveClass(/\bcollapsed\b/);
     await page.screenshot({ path: test.info().outputPath('glance.png') });
@@ -123,12 +125,9 @@ test('live cards fold to rows, the dial hides and shows them, and the optional f
     await expect(c2).toBeHidden();
     await expect(c3).toBeHidden();
     await expect(s1).toBeVisible();
-    // Counted from the page: a server that ran an earlier meeting still holds
-    // that meeting's finished cards, and a live page fetches them on connect.
-    const finished = page.locator('#results .card:not(.suggested):not(.running)');
-    const waiting = await finished.count();
-    expect(waiting).toBeGreaterThanOrEqual(3);
-    await expect(page.locator('#discQuietNote')).toContainText(`${waiting} cards are waiting`);
+    // Exactly this meeting's three: 09's failed summary and review were in the
+    // registry until a new meeting started forgetting finished cards.
+    await expect(page.locator('#discQuietNote')).toContainText('3 cards are waiting');
 
     // Ctrl+Opt+0 cycles: Quiet -> Glance -> Full.
     await page.keyboard.press('Control+Alt+Digit0');
@@ -163,7 +162,7 @@ test('live cards fold to rows, the dial hides and shows them, and the optional f
     await page.locator('#settingsSave').click();
     await expect(page.locator('#settingsModal')).toHaveCount(0);
     const bar = page.locator('#cardFilterBar');
-    await expect(bar.locator('.disc-chip', { hasText: 'All' })).toContainText(String(waiting));
+    await expect(bar.locator('.disc-chip', { hasText: 'All' })).toContainText('3');
     await bar.locator('.disc-chip', { hasText: 'Analysis' }).click();
     await expect(c3.locator('.card-body')).toBeVisible();
     await expect(c1).toBeHidden();

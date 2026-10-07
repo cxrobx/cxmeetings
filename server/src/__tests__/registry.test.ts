@@ -39,6 +39,22 @@ function makeSuggestion(overrides?: Partial<ActionSuggestion>): ActionSuggestion
 describe('WorkerRegistry', () => {
   let registry: WorkerRegistry;
 
+  // 2026-10-07: the registry outlived meetings, so a live dashboard that
+  // reconnected showed every earlier meeting's cards since the server started.
+  it('forgets finished actions for a new meeting and keeps the ones still waiting', async () => {
+    const r = new WorkerRegistry();
+    r.register(makeWorker('research'));
+    const done = r.suggest(makeSuggestion({ title: 'Finished research' }))!;
+    r.approve(done.id);
+    await vi.waitFor(() => expect(done.state).toBe('completed'));
+    const waiting = r.suggest(makeSuggestion({ type: 'mockup', title: 'Pricing page wireframe', params: { description: 'pricing page' } }))!;
+    expect(waiting.state).toBe('suggested');
+
+    expect(r.forgetFinished()).toBe(1);
+    expect(r.getAction(done.id)).toBeUndefined();
+    expect(r.getAction(waiting.id)).toBe(waiting);
+  });
+
   beforeEach(() => {
     registry = new WorkerRegistry();
     registry.register(makeWorker('research'));
