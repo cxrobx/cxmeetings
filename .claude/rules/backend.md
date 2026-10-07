@@ -72,6 +72,8 @@ cd server && npm start        # Run compiled dist/index.js
 | `DEEPGRAM_API_KEY` | No | - | Deepgram cloud transcription (metered) |
 | `OPENAI_API_KEY` | No | - | **Metered.** Present in `.env`; its presence is what puts the live path on the API |
 | `TYPESAFE_API_KEY` | No | - | **Metered.** Jev gate before the coach's generative call (~$0.000042/call) |
+| `COPILOT_GATE_PROVIDER` | No | jev | `decisions` = coach gate on OpenAI's Decisions API (`OPENAI_API_KEY`, ~$0.00016/call, own thresholds `DECISIONS_THRESHOLDS`); fails open like Jev |
+| `COPILOT_DECISIONS_MODEL` | No | gpt-6-luna | Model for the Decisions gate (and the eval's Decisions arm) |
 | `COPILOT_LIVE_LLM_MODE` | No | auto | `cli` forces the live path onto the subscription CLIs |
 | `COPILOT_JEV_INPUT_PER_MILLION` | No | 0.042 | Jev input price for the budget guard |
 | `COPILOT_JEV_OUTPUT_PER_MILLION` | No | 0.42 | Jev output price — unpublished, deliberately pessimistic |

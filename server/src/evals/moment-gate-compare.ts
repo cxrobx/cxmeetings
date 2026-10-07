@@ -2,8 +2,8 @@
 /**
  * Coach-gate A/B: TypeSafe Jev (production) vs OpenAI's Decisions API.
  *
- * Same three questions, same redacted transcript tail, same OR'd thresholds as
- * `intelligence/moment-gate.ts`. Two corpora:
+ * Same three questions and redacted transcript tail as `intelligence/moment-gate.ts`,
+ * each arm OR'd at its own production thresholds (WORTH_MIN… / DECISIONS_THRESHOLDS). Two corpora:
  *   - LABELLED: the ten frozen coach cases (`recovery-coach-cases.ts`); the
  *     gate should open exactly where `expectedSuggestion` is true. A false
  *     close is the expensive error (a lost coaching moment), so it is counted
@@ -19,15 +19,19 @@
  * Usage:
  *   secret run -k TYPESAFE_API_KEY -k OPENAI_API_KEY -- npx tsx src/evals/moment-gate-compare.ts \
  *     [--per-session 30] [--min-rows 80] [--out <file.json>]
+ *     [--exclude <earlier-out.json>] [--offset 0.5]
+ * A held-out run: `--exclude` drops every real window id an earlier `--out` file
+ * already scored, and `--offset` (a fraction of the sampling stride) shifts the
+ * sample so it falls between the earlier windows instead of on them.
  * Cost: ~2k input tokens a call per arm, so ~200 windows ≈ $0.02 Jev + $0.04 Decisions.
  */
-import { readdirSync, existsSync, writeFileSync } from 'node:fs';
+import { readdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import Database from 'better-sqlite3';
 import { jevAsk, noul, redactForJev } from '../api/jev.js';
-import { QUESTIONS, WORTH_MIN, ASKED_MIN, PUSHBACK_MIN } from '../intelligence/moment-gate.js';
+import { QUESTIONS, WORTH_MIN, ASKED_MIN, PUSHBACK_MIN, DECISIONS_PREDICATES, DECISIONS_THRESHOLDS } from '../intelligence/moment-gate.js';
 import { CASES } from './recovery-coach-cases.js';
 
 const WINDOW_TAIL_CHARS = 3_600; // coach.ts
@@ -44,6 +48,11 @@ function arg(name: string, fallback: string): string {
 const perSession = Number(arg('per-session', '30'));
 const minRows = Number(arg('min-rows', '80'));
 const outFile = arg('out', '');
+const offset = Number(arg('offset', '0'));
+const excludeFile = arg('exclude', '');
+const excluded = new Set<string>(
+  excludeFile ? (JSON.parse(readFileSync(excludeFile, 'utf8')).real as Array<{ id: string }>).map((w) => w.id) : [],
+);
 
 interface Verdict {
   worth: number | null;
@@ -57,6 +66,9 @@ interface Verdict {
 
 const isOpen = (w: number | null, a: number | null, p: number | null) =>
   (w ?? 0) >= WORTH_MIN || (a ?? 0) >= ASKED_MIN || (p ?? 0) >= PUSHBACK_MIN;
+// Each arm at its production thresholds; the raw probabilities in --out allow rescoring at others.
+const isOpenDecisions = (w: number | null, a: number | null, p: number | null) =>
+  (w ?? 0) >= DECISIONS_THRESHOLDS.worth || (a ?? 0) >= DECISIONS_THRESHOLDS.asked || (p ?? 0) >= DECISIONS_THRESHOLDS.pushback;
 
 async function askJev(tail: string): Promise<Verdict> {
   const t = performance.now();
@@ -71,15 +83,6 @@ async function askJev(tail: string): Promise<Verdict> {
   }
 }
 
-/** Jev's noul (instructions + true/false criteria) as one Decisions predicate. */
-const PREDICATES = Object.entries(QUESTIONS).map(([name, q]) => {
-  if (q.type !== 'noul') throw new Error(`${name}: only noul questions are mapped`);
-  const criteria = q.criteria
-    ? `\nAnswer yes when: ${q.criteria.true}\nAnswer no when: ${q.criteria.false}`
-    : '';
-  return { type: 'predicate', name, instructions: `${q.instructions}${criteria}` };
-});
-
 async function askDecisions(tail: string): Promise<Verdict> {
   const key = (process.env.OPENAI_API_KEY ?? '').trim();
   const t = performance.now();
@@ -87,7 +90,7 @@ async function askDecisions(tail: string): Promise<Verdict> {
     const res = await fetch(DECISIONS_URL, {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: DECISIONS_MODEL, input: redactForJev(tail), questions: PREDICATES }),
+      body: JSON.stringify({ model: DECISIONS_MODEL, input: redactForJev(tail), questions: DECISIONS_PREDICATES }),
       signal: AbortSignal.timeout(5_000),
     });
     const latencyMs = Math.round(performance.now() - t);
@@ -101,7 +104,7 @@ async function askDecisions(tail: string): Promise<Verdict> {
       return typeof v === 'number' && Number.isFinite(v) ? v : null;
     };
     const w = p('worth_coaching'), a = p('asked_of_user'), pb = p('needs_pushback');
-    return { worth: w, asked: a, pushback: pb, open: isOpen(w, a, pb), latencyMs, inputTokens: json.usage?.input_tokens ?? 0 };
+    return { worth: w, asked: a, pushback: pb, open: isOpenDecisions(w, a, pb), latencyMs, inputTokens: json.usage?.input_tokens ?? 0 };
   } catch (e) {
     return { worth: null, asked: null, pushback: null, open: null, latencyMs: Math.round(performance.now() - t), inputTokens: 0, error: String(e) };
   }
@@ -113,6 +116,8 @@ function realWindows(): Window[] {
   const root = join(homedir(), '.meeting-copilot', 'sessions');
   const out: Window[] = [];
   for (const id of readdirSync(root)) {
+    // The coach's own tests write throwaway sessions here.
+    if (id.startsWith('test-')) continue;
     const dbPath = join(root, id, 'session.db');
     if (!existsSync(dbPath)) continue;
     const db = new Database(dbPath, { readonly: true, fileMustExist: true });
@@ -132,11 +137,12 @@ function realWindows(): Window[] {
           .map((r) => `${r.source === 'mic' ? '[You]' : '[Meeting]'} ${r.text}`)
           .join('\n')
           .slice(-WINDOW_TAIL_CHARS);
-        if (tail.trim().length >= 20) cuts.push({ id: `${id.slice(0, 8)}@${i}`, session: id, title, tail });
+        const wid = `${id.slice(0, 8)}@${i}`;
+        if (tail.trim().length >= 20 && !excluded.has(wid)) cuts.push({ id: wid, session: id, title, tail });
         next = rows[i]!.timestamp + STEP_MS;
       }
       const stride = Math.max(1, cuts.length / perSession);
-      for (let k = 0; k < cuts.length && out.filter((w) => w.session === id).length < perSession; k += stride) {
+      for (let k = stride * offset; k < cuts.length && out.filter((w) => w.session === id).length < perSession; k += stride) {
         out.push(cuts[Math.floor(k)]!);
       }
     } finally {

@@ -17,7 +17,9 @@
  * opens the gate. This gate may only ever SAVE a call — it must never be the
  * reason coaching does not happen.
  */
-import { isJevAvailable, jevAsk, noul, type JevQuestion } from '../api/jev.js';
+import { isJevAvailable, jevAsk, noul, redactForJev, type JevQuestion } from '../api/jev.js';
+import { isOpenAiApiAvailable } from '../api/openai.js';
+import { beginLlmRequest, recordLlmUsage } from '../api/budget.js';
 import { log } from '../logging.js';
 
 /** Budget for the gate itself. Jev measures ~175ms p50; this is the tail stop. */
@@ -124,3 +126,95 @@ export const jevMomentGate: MomentGate = async (tail, signal) => {
 
 /** Gate that always opens — the behaviour before this existed. */
 export const alwaysOpenGate: MomentGate = async () => ({ ...OPEN_UNGATED, reason: 'disabled' });
+
+// ─── OpenAI Decisions provider (opt-in: COPILOT_GATE_PROVIDER=decisions) ─────
+//
+// Same three questions, each mapped to a Decisions predicate. Its probabilities
+// sit lower than Jev's on the same moment, so it has its own thresholds: worth
+// was tuned to 0.05 on 176 real windows (2026-10-06), then held out on 172
+// others with the thresholds fixed beforehand — Opus-refereed recall 33/33 of
+// open moments, 31% of coach calls saved vs Jev's 10%, p50 94 ms vs 141 ms.
+// `npm run eval:moment-gate` reproduces both arms.
+const DECISIONS_URL = 'https://api.openai.com/v1/decisions';
+const DECISIONS_MODEL = process.env.COPILOT_DECISIONS_MODEL || 'gpt-6-luna';
+const DECISIONS_INPUT_PER_MILLION = 0.10; // no output charge
+
+export const DECISIONS_THRESHOLDS = { worth: 0.05, asked: 0.50, pushback: 0.40 } as const;
+
+/** Jev's noul (instructions + true/false criteria) as one Decisions predicate. */
+export const DECISIONS_PREDICATES = Object.entries(QUESTIONS).map(([name, q]) => {
+  if (q.type !== 'noul') throw new Error(`${name}: only noul questions are mapped`);
+  const criteria = q.criteria
+    ? `\nAnswer yes when: ${q.criteria.true}\nAnswer no when: ${q.criteria.false}`
+    : '';
+  return { type: 'predicate' as const, name, instructions: `${q.instructions}${criteria}` };
+});
+
+/** Same contract as `jevMomentGate`: any failure at all opens the gate. */
+export const decisionsMomentGate: MomentGate = async (tail, signal) => {
+  if (!isOpenAiApiAvailable()) return { ...OPEN_UNGATED, reason: 'unavailable' };
+  if (!tail || tail.trim().length < 20) return { ...OPEN_UNGATED, reason: 'too-short' };
+
+  const started = Date.now();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), GATE_TIMEOUT_MS);
+  const onAbort = () => controller.abort();
+  signal?.addEventListener('abort', onAbort, { once: true });
+  try {
+    beginLlmRequest();
+    const res = await fetch(DECISIONS_URL, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${(process.env.OPENAI_API_KEY ?? '').trim()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: DECISIONS_MODEL, input: redactForJev(tail), questions: DECISIONS_PREDICATES }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Decisions HTTP ${res.status}: ${body.slice(0, 200)}`);
+    }
+    const json = (await res.json()) as {
+      answers?: Array<{ name?: string; probability?: unknown }>;
+      usage?: { input_tokens?: number };
+    };
+    const latencyMs = Date.now() - started;
+    const inputTokens = json.usage?.input_tokens ?? 0;
+    recordLlmUsage({
+      inputTokens,
+      outputTokens: 0,
+      inputDollarsPerMillion: DECISIONS_INPUT_PER_MILLION,
+      outputDollarsPerMillion: 0,
+    });
+    const p = (name: string) => {
+      const v = Array.isArray(json.answers) ? json.answers.find((a) => a?.name === name)?.probability : undefined;
+      return typeof v === 'number' && Number.isFinite(v) ? v : null;
+    };
+    const worth = p('worth_coaching');
+    const asked = p('asked_of_user');
+    const pushback = p('needs_pushback');
+
+    if (worth === null && asked === null && pushback === null) {
+      return { ...OPEN_UNGATED, reason: 'unparsed', latencyMs };
+    }
+
+    const open =
+      (worth ?? 0) >= DECISIONS_THRESHOLDS.worth
+      || (asked ?? 0) >= DECISIONS_THRESHOLDS.asked
+      || (pushback ?? 0) >= DECISIONS_THRESHOLDS.pushback;
+    log('intelligence/moment-gate', `decisions model=${DECISIONS_MODEL} latencyMs=${latencyMs} in=${inputTokens} open=${open}`);
+    return { open, reason: open ? 'signal' : 'quiet', worth, asked, pushback, latencyMs };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log('intelligence/moment-gate', `decisions gate failed open: ${message}`);
+    return { ...OPEN_UNGATED, reason: 'error', latencyMs: Date.now() - started };
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener('abort', onAbort);
+  }
+};
+
+/** The gate the coach uses: Jev unless `COPILOT_GATE_PROVIDER=decisions`. */
+export function selectedMomentGate(): MomentGate {
+  return (process.env.COPILOT_GATE_PROVIDER ?? '').trim().toLowerCase() === 'decisions'
+    ? decisionsMomentGate
+    : jevMomentGate;
+}

@@ -66,6 +66,7 @@ cd app/MeetingCopilot && swift build
 - `DEEPGRAM_API_KEY` — optional, only with `COPILOT_CLOUD_TRANSCRIPTION=deepgram`
 - `OPENAI_API_KEY` — **metered.** Present in `~/.meeting-copilot/.env`, and the live path prefers it
 - `TYPESAFE_API_KEY` — **metered.** Jev gate in front of the coach's generative call
+- `COPILOT_GATE_PROVIDER=decisions` — run the coach gate on OpenAI's Decisions API (`OPENAI_API_KEY`, $0.10/M input) instead of Jev (the default). Held out 2026-10-06: same recall, ~31% of coach calls saved vs Jev's ~10%. `COPILOT_DECISIONS_MODEL` overrides `gpt-6-luna`
 - `COPILOT_PORT` — TCP port (default: 17890; honored by BOTH server and app via `ServerConfig`)
 - `COPILOT_LIVE_LLM_MODE=cli` — force the live path onto the subscription CLIs
 - `COPILOT_DISABLE_PAID_API=1` — hard zero-API-spend mode (CLIs/subscription only); also disables Jev

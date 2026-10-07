@@ -14,7 +14,7 @@ import {
   type CoachKind,
 } from './prompts/coach.v1.js';
 import type { AgendaStatus } from './agenda.js';
-import { jevMomentGate, type MomentGate } from './moment-gate.js';
+import { selectedMomentGate, type MomentGate } from './moment-gate.js';
 
 const EVAL_INTERVAL_MS = 25_000;
 const MIN_NEW_WORDS_BEFORE_EVAL = 25;
@@ -345,7 +345,7 @@ export class CoachMonitor extends EventEmitter {
   constructor(deps: CoachEvalDeps = {}) {
     super();
     this.now = deps.now ?? Date.now;
-    this.gate = deps.gate ?? jevMomentGate;
+    this.gate = deps.gate ?? selectedMomentGate();
     this.triage = deps.triage ?? (async (prompt, systemPrompt, signal, timeouts, onTextDelta) => {
       const result = await runLiveJson({
         prompt,
