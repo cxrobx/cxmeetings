@@ -49,6 +49,14 @@ describe('settings', () => {
     expect(s.retentionDays).toBe(7); // min clamp
   });
 
+  it('keeps the filter bar off until it is turned on; a non-boolean reads as the default', () => {
+    expect(getSettings().showFilterBar).toBe(false);
+    expect(updateSettings({ showFilterBar: true }).showFilterBar).toBe(true);
+    _resetSettingsCache();
+    expect(getSettings().showFilterBar).toBe(true);
+    expect(updateSettings({ showFilterBar: 'yes' as unknown as boolean }).showFilterBar).toBe(false);
+  });
+
   it('falls back to defaults on a corrupt settings file', () => {
     writeFileSync(join(dir, 'settings.json'), '{not json', 'utf-8');
     _resetSettingsCache();

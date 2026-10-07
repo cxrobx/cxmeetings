@@ -2178,6 +2178,72 @@ export const PRESENT_HTML = `<!DOCTYPE html>
   }
   .session-confirm-bar .btn { font-size: 11px; padding: 4px 12px; }
 
+  /* ─── Progressive disclosure: focus level + card rows ────────
+     The middle column has three levels, set by the dial in the coach head
+     (Ctrl+Opt+0 cycles): quiet = the coach line and anything waiting for
+     approval; glance = cards as one-line rows, the newest finished one open;
+     full = every card open, the view before 2026-10-07 and always replay's.
+     Suggested, running and failed cards never collapse. */
+  .quick-actions.qa-compact { display: flex; gap: 6px; align-items: center; padding: 8px 10px; }
+  .qa-compact .quick-actions-input { margin-bottom: 0; flex: 1 1 auto; min-width: 0; width: auto; }
+  .qa-menu {
+    position: fixed; z-index: 1002; min-width: 170px; padding: 4px;
+    background: var(--gb-base); border: 1px solid var(--gb-surface2); border-radius: 8px;
+    box-shadow: 0 14px 30px -14px rgb(var(--shadow-color) / 0.55);
+  }
+  .qa-menu button {
+    display: block; width: 100%; padding: 7px 10px; border: 0; border-radius: 5px; background: none;
+    font-family: var(--font-sans); font-size: 12px; color: var(--gb-text); text-align: left; cursor: pointer;
+  }
+  .qa-menu button:hover, .qa-menu button:focus-visible { background: var(--gb-surface1); outline: none; }
+  .focus-dial { display: inline-flex; border: 1px solid var(--gb-surface2); border-radius: 999px; overflow: hidden; flex-shrink: 0; }
+  .focus-dial button {
+    font-family: var(--font-sans); font-size: 11px; padding: 3px 9px; border: 0;
+    background: var(--gb-base); color: var(--gb-subtext0); cursor: pointer;
+  }
+  .focus-dial button + button { border-left: 1px solid var(--gb-surface2); }
+  .focus-dial button[aria-pressed="true"] { background: rgb(var(--accent)); color: rgb(var(--accent-ink)); font-weight: 600; }
+  .coach-head .intel-status { padding: 0; flex-shrink: 0; }
+  .coach-head .intel-status #intelStatusText { display: none; }
+  .coach-why-toggle {
+    background: none; border: 0; padding: 0; margin-top: 2px;
+    font-family: var(--font-sans); font-size: 11px; color: var(--gb-blue); cursor: pointer;
+  }
+  .main:not([data-focus="full"]) .coach-strip:not(.why-open) .coach-why { display: none; }
+  .main[data-focus="full"] .coach-why-toggle { display: none; }
+  .card.disc-row > .card-header { cursor: pointer; }
+  .card.disc-row > .card-header:focus-visible { outline: 2px solid rgb(var(--accent) / 0.5); outline-offset: 2px; border-radius: 4px; }
+  .card.collapsed { padding-top: 9px; padding-bottom: 9px; margin-bottom: 8px; }
+  .card.collapsed > .card-header { margin-bottom: 0; }
+  .card.collapsed .card-body, .card.collapsed .mc-pub-row, .card.collapsed .card-publish { display: none !important; }
+  .card.collapsed .card-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; font-size: 13px; }
+  .card-finding { display: none; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; color: var(--gb-text); }
+  .card.collapsed.has-finding .card-title { display: none; }
+  .card.collapsed.has-finding .card-finding { display: block; }
+  .card.collapsed .card-expand { opacity: 0; }
+  .card.collapsed:hover .card-expand, .card.collapsed .card-expand:focus-visible { opacity: 1; }
+  .disc-caret { flex-shrink: 0; width: 12px; text-align: center; color: var(--gb-overlay2); font-size: 13px; line-height: 1; transition: transform 0.15s; }
+  .card:not(.collapsed) .disc-caret { transform: rotate(90deg); }
+  .card.unread > .card-header::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: rgb(var(--accent)); flex-shrink: 0; }
+  .disc-updated { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: rgb(var(--accent)); flex-shrink: 0; }
+  .card.filtered-out { display: none; }
+  .main[data-focus="quiet"] #results .card:not(.suggested):not(.running) { display: none; }
+  .main[data-focus="quiet"] #coachHistory, .main[data-focus="quiet"] #cardFilterBar { display: none; }
+  .main[data-focus="quiet"] #pulseSlot:not([data-keep]) { display: none; }
+  #discQuietNote {
+    display: none; font-size: 12px; color: var(--gb-overlay2);
+    border: 1px dashed var(--gb-surface2); border-radius: 8px; padding: 8px 12px; margin-bottom: 12px;
+  }
+  .main[data-focus="quiet"] #discQuietNote:not(:empty) { display: block; }
+  #cardFilterBar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  #cardFilterBar:empty { display: none; }
+  .disc-chip {
+    font-family: var(--font-sans); font-size: 11px; padding: 3px 9px; border-radius: 999px;
+    border: 1px solid var(--gb-surface2); background: var(--gb-base); color: var(--gb-subtext0); cursor: pointer;
+  }
+  .disc-chip .n { color: var(--gb-text); margin-left: 4px; font-family: var(--font-mono); font-size: 10px; }
+  .disc-chip[aria-pressed="true"] { border-color: rgb(var(--accent)); color: var(--gb-text); box-shadow: 0 0 0 2px rgb(var(--accent) / 0.15); }
+
   /* ─── Quick Actions ──────────────────────────────────────────
      Sticks to the top of the .main scroll container so the user
      can kick off a research/search without scrolling back up as
@@ -3907,6 +3973,8 @@ export const PRESENT_HTML = `<!DOCTYPE html>
     <div id="evView" role="tabpanel"></div>
     <div id="pulseSlot"></div>
     <div id="coachHistory"></div>
+    <div id="discQuietNote" aria-live="polite"></div>
+    <div id="cardFilterBar" role="group" aria-label="Filter cards"></div>
     <div id="results"></div>
   </div>
 
@@ -4055,9 +4123,13 @@ export const PRESENT_HTML = `<!DOCTYPE html>
   function renderPulse() {
     if (!pulseSlot) return;
     var p = pulseAnswer && pulseAnswer.pulse;
-    if (!p) { pulseSlot.innerHTML = ''; return; }
+    if (!p) { pulseSlot.innerHTML = ''; pulseSlot.removeAttribute('data-keep'); return; }
     var closeout = p.mode === 'closeout';
     var missed = p.mode === 'missed';
+    // Quiet hides the pulse card, except the end-of-call list, a Missed
+    // anything? read, and any read you asked for.
+    if (closeout || missed || pulseAnswer.kind === 'asked') pulseSlot.setAttribute('data-keep', '');
+    else pulseSlot.removeAttribute('data-keep');
     var meta = p.minutesIn + ' min in' +
       (p.minutesLeft !== null && p.minutesLeft !== undefined ? ' \\u00b7 ' + Math.max(0, p.minutesLeft) + ' left' : '') +
       ' \\u00b7 ' + formatTime(new Date(p.createdAt).toISOString());
@@ -4233,6 +4305,7 @@ export const PRESENT_HTML = `<!DOCTYPE html>
     coachHeadEl.innerHTML = '<div class="coach-head">' +
       '<span class="coach-head-title">Coach</span>' +
       pulsePart + note +
+      discDialHtml() +
       '<span class="coach-asks">' + asks + '</span>' +
       '<button class="coach-more" data-coach="menu" aria-haspopup="menu" aria-expanded="' + (coachMenuOpen ? 'true' : 'false') + '"' +
         ' title="Wrap-up check, self-review, coach and fact-check">&#8943;</button>' +
@@ -4242,9 +4315,14 @@ export const PRESENT_HTML = `<!DOCTYPE html>
         '<div class="coach-menu-sep"></div>' +
         coachMenuToggle('coach', 'Coach cards', featureState.coach) +
         coachMenuToggle('factcheck', 'Fact-check', featureState.factcheck) +
-        '<div class="coach-menu-note">&#8963;&#8997;1 How am I doing? &middot; &#8963;&#8997;2 Missed anything? &middot; &#8963;&#8997;3 Suggest. They work from any app while the meeting is live.</div>' +
+        '<div class="coach-menu-note">&#8963;&#8997;1 How am I doing? &middot; &#8963;&#8997;2 Missed anything? &middot; &#8963;&#8997;3 Suggest. They work from any app while the meeting is live. &#8963;&#8997;0 cycles Quiet, Glance and Full.</div>' +
       '</div>' +
     '</div>';
+    // The "Listening" status rides in the head as its dot (its text is the
+    // tooltip). The element is moved, not copied, so the warn badge keeps its
+    // handler; replacing innerHTML above detached it.
+    var headRow = coachHeadEl.querySelector('.coach-head');
+    if (headRow && intelStatusEl) headRow.insertBefore(intelStatusEl, headRow.children[1] || null);
   }
 
   // One listener for everything in the coach area: the markup is rebuilt on
@@ -5114,6 +5192,7 @@ export const PRESENT_HTML = `<!DOCTYPE html>
     if (!INTEL_PHASE_TEXT[phase]) phase = 'idle';
     intelStatusEl.className = 'intel-status ' + phase;
     intelStatusTextEl.textContent = INTEL_PHASE_TEXT[phase];
+    intelStatusEl.title = INTEL_PHASE_TEXT[phase];
   }
 
   // ─── Intelligence error badge ──────────────────────────────
@@ -5840,21 +5919,326 @@ export const PRESENT_HTML = `<!DOCTYPE html>
     refreshStagedPreps(true);
   }
 
-  // Workers only: things to make. The coach's questions, the wrap-up check,
-  // the self-review and the coach / fact-check switches live in the coach head.
+  // Workers only: things to make. Research is the one used mid-sentence, so it
+  // stays a button; the rest wait in More. The coach's questions, the wrap-up
+  // check, the self-review and the coach / fact-check switches live in the
+  // coach head.
   function showQuickActions() {
-    quickActionsSlot.innerHTML = '<div class="quick-actions">' +
-      '<div class="quick-actions-title">Quick Actions</div>' +
-      '<input class="quick-actions-input" id="quickPrompt" placeholder="Topic or prompt (optional)...">' +
-      '<div class="quick-actions-row">' +
-        '<button class="btn btn-ghost" onclick="triggerAction(\\'fast-research\\')" title="Answers in seconds with web search (gpt-6-luna), then Deep research (Opus 5.5) adds what it finds about a minute later">Research</button>' +
-        '<button class="btn btn-ghost" onclick="triggerAction(\\'summary\\')">Summary</button>' +
-        '<button class="btn btn-ghost" onclick="triggerAction(\\'analysis\\')">Analysis</button>' +
-        '<button class="btn btn-ghost" onclick="triggerAction(\\'mockup\\')" title="UI wireframe from the discussion (type a screen in the box first)">Mockup</button>' +
-        '<button class="btn btn-ghost" onclick="triggerAction(\\'codegen\\')" title="Generate code from the discussion">Code</button>' +
-      '</div>' +
+    qaCloseMenu();
+    quickActionsSlot.innerHTML = '<div class="quick-actions qa-compact">' +
+      '<input class="quick-actions-input" id="quickPrompt" placeholder="Topic or prompt (optional)..." aria-label="Topic or prompt for Quick Actions">' +
+      '<button class="btn btn-ghost" onclick="triggerAction(\\'fast-research\\')" title="Answers in seconds with web search (gpt-6-luna), then Deep research (Opus 5.5) adds what it finds about a minute later">Research</button>' +
+      '<button class="btn btn-ghost" id="qaMoreBtn" type="button" data-qa-more aria-haspopup="menu" aria-expanded="false" title="Summary, Analysis, Mockup (type a screen in the box first), Code">More &#9662;</button>' +
     '</div>';
   }
+
+  // Quick Actions' More menu: on <body>, fixed, placed from its button. A
+  // popover inside the sticky slot can hit-test and never paint (gotcha #27).
+  var QA_MORE_ITEMS = [['summary', 'Summary'], ['analysis', 'Analysis'], ['mockup', 'Mockup'], ['codegen', 'Code']];
+  var qaMenuEl = null;
+  function qaCloseMenu() {
+    if (!qaMenuEl) return;
+    qaMenuEl.remove();
+    qaMenuEl = null;
+    var btn = document.getElementById('qaMoreBtn');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  }
+  function qaOpenMenu(btn) {
+    qaCloseMenu();
+    qaMenuEl = document.createElement('div');
+    qaMenuEl.className = 'qa-menu';
+    qaMenuEl.setAttribute('role', 'menu');
+    qaMenuEl.innerHTML = QA_MORE_ITEMS.map(function(it) {
+      return '<button role="menuitem" type="button" data-qa-act="' + it[0] + '">' + it[1] + '</button>';
+    }).join('');
+    document.body.appendChild(qaMenuEl);
+    var r = btn.getBoundingClientRect();
+    var w = qaMenuEl.offsetWidth;
+    qaMenuEl.style.top = Math.round(r.bottom + 4) + 'px';
+    qaMenuEl.style.left = Math.round(Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8))) + 'px';
+    btn.setAttribute('aria-expanded', 'true');
+    var first = qaMenuEl.querySelector('button');
+    if (first) first.focus();
+  }
+  document.addEventListener('click', function(e) {
+    var t = e.target && e.target.closest ? e.target : null;
+    if (!t) return;
+    var act = t.closest('[data-qa-act]');
+    if (act) { qaCloseMenu(); window.triggerAction(act.getAttribute('data-qa-act')); return; }
+    var more = t.closest('[data-qa-more]');
+    if (more) { if (qaMenuEl) qaCloseMenu(); else qaOpenMenu(more); return; }
+    if (qaMenuEl && !t.closest('.qa-menu')) qaCloseMenu();
+  });
+  document.addEventListener('keydown', function(e) { if (e.key === 'Escape' && qaMenuEl) qaCloseMenu(); });
+  // No close on the column's scroll (the evidence menu has one): Quick Actions
+  // stick to the top, so the button does not move, and an Outline jump's
+  // smooth scroll would otherwise shut the menu as it opens.
+  window.addEventListener('resize', qaCloseMenu);
+
+  // ─── Focus level + card rows (progressive disclosure) ──────
+  // Three levels for the middle column; see the CSS block of the same name.
+  // A finished card shows as a one-line row; the newest one is open until a
+  // newer one arrives, and a card opened or closed by hand stays that way.
+  var DISC_LEVELS = ['quiet', 'glance', 'full'];
+  var DISC_LEVEL_LABELS = { quiet: 'Quiet', glance: 'Glance', full: 'Full' };
+  var DISC_LEVEL_TITLES = {
+    quiet: 'Only the coach line and what needs your approval',
+    glance: 'Cards as one-line rows, the newest open',
+    full: 'Every card open',
+  };
+  var DISC_KIND_LABELS = { research: 'Research', summary: 'Summary', analysis: 'Analysis', mockup: 'Mockup', codegen: 'Code', review: 'Review', factflag: 'Fact flags' };
+  var discLevel = 'glance';
+  try {
+    var discSavedLevel = localStorage.getItem('mc-focus-level');
+    if (DISC_LEVELS.indexOf(discSavedLevel) >= 0) discLevel = discSavedLevel;
+  } catch (e) { /* non-fatal */ }
+  var discUser = {};        // card id -> true / false: opened or closed by hand
+  var discSeen = {};        // card id -> it has been shown open
+  var discPrevState = {};   // card id -> state at its last render
+  var discPrevBody = {};    // card id -> body text at its last render
+  var discUpdated = {};     // card id -> changed after it finished (Deep research adds)
+  var discAutoId = null;    // the newest finished card
+  var discFilter = 'all';
+  var discUnreadSnap = {};  // the Unread filter keeps the cards unread when it was picked
+  var discFilterOn = false; // settings.json showFilterBar
+
+  // Replay reads like a document: always every card open, no dial.
+  function discEffectiveLevel() { return isReplay ? 'full' : discLevel; }
+
+  function discDialHtml() {
+    return '<span class="focus-dial" role="group" aria-label="How much to show">' + DISC_LEVELS.map(function(l) {
+      return '<button type="button" data-focus-level="' + l + '" aria-pressed="' + (l === discLevel ? 'true' : 'false') + '"' +
+        ' title="' + DISC_LEVEL_TITLES[l] + ' (&#8963;&#8997;0 cycles)">' + DISC_LEVEL_LABELS[l] + '</button>';
+    }).join('') + '</span>';
+  }
+
+  function discSetLevel(level) {
+    if (DISC_LEVELS.indexOf(level) < 0) return;
+    discLevel = level;
+    try { localStorage.setItem('mc-focus-level', level); } catch (e) { /* non-fatal */ }
+    discApplyAll();
+    renderCoachHead();
+  }
+
+  function discKind(card) {
+    if (card.classList.contains('factflag')) return 'factflag';
+    var t = card.querySelector('.card-type');
+    var k = t ? t.textContent.trim() : '';
+    return k === 'fast-research' ? 'research' : k;
+  }
+
+  function discIsOpen(card) {
+    if (discEffectiveLevel() === 'full') return true;
+    if (card.classList.contains('suggested') || card.querySelector('.card-type.failed')) return true;
+    if (discFilter !== 'all') return true;
+    var user = discUser[card.id];
+    if (user !== undefined) return user;
+    return card.classList.contains('running') || card.id === discAutoId;
+  }
+
+  function discApply(card) {
+    var collapsible = !card.classList.contains('suggested') && !card.querySelector('.card-type.failed');
+    var open = discIsOpen(card);
+    var hdr = card.querySelector('.card-header');
+    card.classList.toggle('disc-row', collapsible);
+    card.classList.toggle('collapsed', !open);
+    card.setAttribute('data-kind', discKind(card));
+    if (open) {
+      discSeen[card.id] = 1;
+      delete discUpdated[card.id];
+      card.classList.remove('unread');
+    } else if (!isReplay && (!discSeen[card.id] || discUpdated[card.id])) {
+      card.classList.add('unread');
+    }
+    var tag = hdr ? hdr.querySelector('.disc-updated') : null;
+    if (discUpdated[card.id] && hdr && !tag) {
+      tag = document.createElement('span');
+      tag.className = 'disc-updated';
+      tag.textContent = 'updated';
+      hdr.insertBefore(tag, hdr.querySelector('.card-time'));
+    } else if (!discUpdated[card.id] && tag) {
+      tag.remove();
+    }
+    var keep = discFilter === 'all' || card.classList.contains('suggested') ||
+      (discFilter === 'unread' ? !!discUnreadSnap[card.id] : discKind(card) === discFilter);
+    card.classList.toggle('filtered-out', !keep);
+    if (hdr) {
+      if (collapsible && !hdr.querySelector('.disc-caret')) {
+        var caret = document.createElement('span');
+        caret.className = 'disc-caret';
+        caret.setAttribute('aria-hidden', 'true');
+        caret.textContent = '\\u25B8';
+        hdr.appendChild(caret);
+      }
+      if (collapsible) {
+        hdr.setAttribute('role', 'button');
+        hdr.setAttribute('tabindex', '0');
+        hdr.setAttribute('aria-expanded', open ? 'true' : 'false');
+      } else {
+        hdr.removeAttribute('role');
+        hdr.removeAttribute('tabindex');
+        hdr.removeAttribute('aria-expanded');
+      }
+    }
+  }
+
+  function discApplyAll() {
+    mainCol.setAttribute('data-focus', discEffectiveLevel());
+    resultsEl.querySelectorAll('.card').forEach(discApply);
+    discRenderBar();
+    discRenderQuietNote();
+  }
+
+  // After renderAction / renderFactFlag put a card in the DOM. A card that has
+  // just finished becomes the open one; a finished card whose text changed
+  // (Deep research adds a section a minute later) is marked updated.
+  function discOnRender(card, state) {
+    var prev = discPrevState[card.id];
+    var bodyEl = card.querySelector('.card-body');
+    var body = bodyEl ? bodyEl.textContent : '';
+    var prevBody = discPrevBody[card.id];
+    discPrevState[card.id] = state;
+    discPrevBody[card.id] = body;
+    if (!isReplay && state === 'completed') {
+      if (prev !== 'completed') discAutoId = card.id;
+      else if (prevBody !== undefined && prevBody !== body && !discIsOpen(card)) discUpdated[card.id] = 1;
+    }
+    discApplyAll();
+  }
+
+  // Open a card from somewhere else (the Outline): show it whatever hides it.
+  function discOpen(id) {
+    var card = document.getElementById(id);
+    if (!card) return;
+    if (discEffectiveLevel() === 'quiet') discLevel = 'glance';
+    if (card.classList.contains('filtered-out')) discFilter = 'all';
+    if (card.classList.contains('collapsed')) discUser[id] = true;
+    discApplyAll();
+    renderCoachHead();
+  }
+
+  function discToggle(card) {
+    if (!card || !card.classList.contains('disc-row') || discEffectiveLevel() === 'full' || discFilter !== 'all') return;
+    discUser[card.id] = card.classList.contains('collapsed');
+    discApplyAll();
+  }
+
+  function discRenderBar() {
+    var bar = document.getElementById('cardFilterBar');
+    if (!bar) return;
+    var counts = {};
+    var unread = 0;
+    var total = 0;
+    resultsEl.querySelectorAll('.card:not(.suggested)').forEach(function(c) {
+      var k = discKind(c);
+      counts[k] = (counts[k] || 0) + 1;
+      total++;
+      if (c.classList.contains('unread')) unread++;
+    });
+    if (!discFilterOn || !total) { bar.innerHTML = ''; return; }
+    var chips = [['all', 'All', total]];
+    if (unread || discFilter === 'unread') chips.push(['unread', 'Unread', discFilter === 'unread' ? Object.keys(discUnreadSnap).length : unread]);
+    Object.keys(DISC_KIND_LABELS).forEach(function(k) { if (counts[k]) chips.push([k, DISC_KIND_LABELS[k], counts[k]]); });
+    bar.innerHTML = chips.map(function(c) {
+      return '<button type="button" class="disc-chip" data-disc-filter="' + c[0] + '" aria-pressed="' + (c[0] === discFilter ? 'true' : 'false') + '">' +
+        escapeHtml(c[1]) + '<span class="n">' + c[2] + '</span></button>';
+    }).join('');
+  }
+
+  function discRenderQuietNote() {
+    var el = document.getElementById('discQuietNote');
+    if (!el) return;
+    var n = discEffectiveLevel() === 'quiet' ? resultsEl.querySelectorAll('.card:not(.suggested):not(.running)').length : 0;
+    el.textContent = n ? n + (n === 1 ? ' card is' : ' cards are') + ' waiting. Glance (\\u2303\\u23250) shows ' + (n === 1 ? 'it.' : 'them.') : '';
+  }
+
+  function discSetFilter(f) {
+    discUnreadSnap = {};
+    if (f === 'unread') {
+      resultsEl.querySelectorAll('.card.unread').forEach(function(c) { discUnreadSnap[c.id] = 1; });
+    }
+    discFilter = f;
+    discApplyAll();
+  }
+
+  function discReset() {
+    discUser = {};
+    discSeen = {};
+    discPrevState = {};
+    discPrevBody = {};
+    discUpdated = {};
+    discAutoId = null;
+    discFilter = 'all';
+    discUnreadSnap = {};
+    discApplyAll();
+  }
+
+  // The row headline: a research or analysis answer leads with its finding
+  // (FAST_RESEARCH_SYSTEM: "lead with the answer"), so its first sentence says
+  // more than the request's title. Lists and headings keep the title.
+  function discFinding(action) {
+    if (action.state !== 'completed' || !action.result || !action.result.artifacts) return '';
+    if (action.type !== 'fast-research' && action.type !== 'research' && action.type !== 'analysis') return '';
+    var a = action.result.artifacts[0];
+    if (!a || (a.type !== 'markdown' && a.type !== 'text')) return '';
+    var text = String(a.content || '').trim();
+    if (!text || /^([#>|]|[-*+]\\s|\\d+[.)]\\s)/.test(text)) return '';
+    text = text.split(/\\n\\s*\\n/)[0]
+      .replace(/\\(\\s*\\[[^\\]]*\\]\\([^)]*\\)\\s*\\)/g, '')
+      .replace(/\\[([^\\]]*)\\]\\([^)]*\\)/g, '$1')
+      .replace(/[*_\\u0060]/g, '')
+      .replace(/\\s+/g, ' ')
+      .replace(/\\s+([.,;:!?])/g, '$1')
+      .trim();
+    var m = /^(.{20,}?[.!?])(\\s|$)/.exec(text);
+    var first = m ? m[1] : text;
+    return first.length > 160 ? first.slice(0, 157).replace(/\\s+\\S*$/, '') + '\\u2026' : first;
+  }
+
+  resultsEl.addEventListener('click', function(e) {
+    var hdr = e.target && e.target.closest ? e.target.closest('.card-header') : null;
+    if (!hdr || e.target.closest('button, a, input, textarea, select')) return;
+    if (window.getSelection && String(window.getSelection())) return;
+    discToggle(hdr.closest('.card'));
+  });
+  resultsEl.addEventListener('keydown', function(e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    var hdr = e.target && e.target.classList && e.target.classList.contains('card-header') ? e.target : null;
+    if (!hdr) return;
+    e.preventDefault();
+    discToggle(hdr.closest('.card'));
+  });
+  document.addEventListener('click', function(e) {
+    var t = e.target && e.target.closest ? e.target : null;
+    if (!t) return;
+    var lvl = t.closest('[data-focus-level]');
+    if (lvl) { discSetLevel(lvl.getAttribute('data-focus-level')); return; }
+    var f = t.closest('[data-disc-filter]');
+    if (f) { discSetFilter(f.getAttribute('data-disc-filter')); return; }
+    var why = t.closest('[data-coach-why]');
+    if (why) {
+      var which = why.getAttribute('data-coach-why');
+      coachWhyOpen[which] = !coachWhyOpen[which];
+      renderCoachStrips();
+    }
+  });
+  // Ctrl+Opt+0 cycles the level, beside the coach's Ctrl+Opt+1-3 (Cmd+1-9
+  // already switch evidence tabs). e.code, because Option changes e.key.
+  document.addEventListener('keydown', function(e) {
+    if (!e.ctrlKey || !e.altKey || e.metaKey || e.code !== 'Digit0' || isReplay) return;
+    e.preventDefault();
+    discSetLevel(DISC_LEVELS[(DISC_LEVELS.indexOf(discLevel) + 1) % DISC_LEVELS.length]);
+  });
+
+  function discLoadSettings() {
+    fetch('/settings').then(function(r) { return r.json(); }).then(function(d) {
+      discFilterOn = !!(d && d.settings && d.settings.showFilterBar);
+      if (!discFilterOn && discFilter !== 'all') discSetFilter('all');
+      else discApplyAll();
+    }).catch(function() { /* the bar stays off */ });
+  }
+  discLoadSettings();
+  mainCol.setAttribute('data-focus', discEffectiveLevel());
 
   window.toggleFeature = function(name) {
     if (name !== 'factcheck' && name !== 'coach') return;
@@ -5878,6 +6262,7 @@ export const PRESENT_HTML = `<!DOCTYPE html>
     window.clearPulse();
     resetIntelWarn();
     resultsEl.innerHTML = '';
+    discReset();
     tocEntries.innerHTML = '';
     transcriptFeed.innerHTML = '';
     segments = [];
@@ -8608,9 +8993,12 @@ export const PRESENT_HTML = `<!DOCTYPE html>
     card.id = 'action-' + action.id;
 
     var typeClass = action.state === 'failed' ? 'failed' : action.type;
+    var finding = discFinding(action);
+    if (finding) card.classList.add('has-finding');
     var header = '<div class="card-header">' +
       '<span class="card-type ' + typeClass + '">' + escapeHtml(action.type) + '</span>' +
       '<span class="card-title">' + escapeHtml(action.title) + '</span>' +
+      (finding ? '<span class="card-finding">' + escapeHtml(finding) + '</span>' : '') +
       '<span class="card-time">' + formatTime(action.completedAt) + '</span>' +
       (mcCanExpand(action)
         ? '<button class="card-publish" data-mc-publish="' + escapeHtml(action.id) + '"' + (mcPubPending(action) ? ' data-mc-pending' : '') + ' title="Publish a polished copy at a public link">Publish link</button>' +
@@ -8704,6 +9092,7 @@ export const PRESENT_HTML = `<!DOCTYPE html>
       resultsEl.insertBefore(card, resultsEl.firstChild);
     }
     actionCards.set(action.id, card);
+    discOnRender(card, action.state);
     highlightCode();
     rebuildToc();
     updateActionStat();
@@ -8746,6 +9135,9 @@ export const PRESENT_HTML = `<!DOCTYPE html>
 
     resultsEl.insertBefore(card, resultsEl.firstChild);
     factFlagCards.set(flag.id, card);
+    // A flag is about something just said: it opens like a finished card.
+    if (!isReplay) discAutoId = card.id;
+    discApplyAll();
     rebuildToc();
   }
 
@@ -8774,13 +9166,19 @@ export const PRESENT_HTML = `<!DOCTYPE html>
   // Closed while its answer was still being written: the finished card stays closed too.
   var coachStreamDismissed = false;
 
+  // "Why?" on the live and asked strips, by slot; a new card closes it again.
+  var coachWhyOpen = { live: false, asked: false };
+
   function coachStripHtml(s, which) {
     var incident = s.asked ? 'asked' : coachIncident(s);
-    return '<div class="coach-strip' + (s.asked ? ' asked' : '') + '">' +
+    var whyOpen = !!coachWhyOpen[which];
+    var hasWhy = !!(s.headline || s.why);
+    return '<div class="coach-strip' + (s.asked ? ' asked' : '') + (whyOpen ? ' why-open' : '') + '">' +
       '<span class="coach-kind ' + escapeHtml(incident) + '">' + escapeHtml(coachLabel(s)) + '</span>' +
       '<div class="coach-body">' +
         '<div class="coach-phrasing">' + escapeHtml(s.phrasing) + '</div>' +
         '<div class="coach-why">' + escapeHtml(s.headline) + (s.why ? ' \\u2014 ' + escapeHtml(s.why) : '') + '</div>' +
+        (hasWhy ? '<button class="coach-why-toggle" type="button" data-coach-why="' + escapeHtml(which) + '">' + (whyOpen ? 'Hide why' : 'Why?') + '</button>' : '') +
       '</div>' +
       '<button class="coach-close" data-coach="dismiss-' + which + '" title="Dismiss">&times;</button>' +
     '</div>';
@@ -8815,8 +9213,10 @@ export const PRESENT_HTML = `<!DOCTYPE html>
     var remainingMs = expiresAt ? expiresAt - Date.now() : 15000;
     if (remainingMs <= 0) return;
     if (s.asked) {
+      if (!askedCoachCard || askedCoachCard.id !== s.id) coachWhyOpen.asked = false;
       askedCoachCard = s;
     } else {
+      if (!liveCoachCard || liveCoachCard.id !== s.id) coachWhyOpen.live = false;
       liveCoachCard = s;
       if (coachExpireTimer) clearTimeout(coachExpireTimer);
       coachExpireTimer = setTimeout(function() { dismissCoachCard('live'); }, Math.min(30000, remainingMs));
@@ -9443,6 +9843,7 @@ export const PRESENT_HTML = `<!DOCTYPE html>
       label.style.cssText = '';
       cardLink.appendChild(label);
       cardLink.addEventListener('click', function() {
+        discOpen(card.id);
         document.getElementById(card.id).scrollIntoView({ behavior:'smooth', block:'start' });
       });
       section.appendChild(cardLink);
@@ -9456,6 +9857,7 @@ export const PRESENT_HTML = `<!DOCTYPE html>
         link.href = '#' + h.id;
         link.addEventListener('click', function(e) {
           e.preventDefault();
+          discOpen(card.id);
           h.scrollIntoView({ behavior:'smooth', block:'start' });
         });
         section.appendChild(link);
@@ -9676,6 +10078,9 @@ export const PRESENT_HTML = `<!DOCTYPE html>
         '<div class="settings-field"><label>Appearance</label>' +
           '<label class="settings-check"><input type="checkbox" id="setVaultLook"' + (s.matchVaultAppearance ? ' checked' : '') + '> Match vault appearance (the Obsidian theme, via Onyx)</label>' +
           '<div class="settings-hint">Wears the palette Onyx derives from your vault\\u2019s theme. Off, or with Onyx not running and nothing cached, the dashboard uses its own light/dark themes.</div></div>' +
+        '<div class="settings-field"><label>Cards</label>' +
+          '<label class="settings-check"><input type="checkbox" id="setFilterBar"' + (s.showFilterBar ? ' checked' : '') + '> Show a filter bar over the cards</label>' +
+          '<div class="settings-hint">Chips for All, Unread and each card type; one click narrows the cards to that type. Hidden at Quiet.</div></div>' +
         '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">' +
           '<button class="btn btn-green" id="settingsSave">Save</button>' +
         '</div>';
@@ -9700,6 +10105,7 @@ export const PRESENT_HTML = `<!DOCTYPE html>
           },
           summaryAutoWrite: document.getElementById('setAutoWrite').checked,
           matchVaultAppearance: document.getElementById('setVaultLook').checked,
+          showFilterBar: document.getElementById('setFilterBar').checked,
         };
         fetch('/settings', {
           method: 'POST',
@@ -9710,6 +10116,7 @@ export const PRESENT_HTML = `<!DOCTYPE html>
             // Appearance is the one setting you can see change — apply it now
             // rather than on the next load.
             if (window.refreshVaultLook) window.refreshVaultLook();
+            discLoadSettings();
             showToast('Settings saved'); close();
           }
           else { showToast('Could not save settings', { error: true }); }

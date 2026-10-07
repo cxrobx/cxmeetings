@@ -39,6 +39,13 @@ describe('/present dashboard script', () => {
     expect(open).toContain('document.body.appendChild(evMenuEl)');
     expect(open).not.toMatch(/getElementById\('evTabBar'\)[\s\S]*appendChild/);
   });
+  // Same class for Quick Actions' More menu: the slot is sticky inside the
+  // scrolling column, so the menu goes on <body>, fixed.
+  it('draws the Quick Actions More menu on <body>, fixed', () => {
+    expect(PRESENT_HTML).toMatch(/\.qa-menu \{[^}]*position: fixed;/);
+    const open = /function qaOpenMenu\(btn\) \{([\s\S]*?)\n  \}\n/.exec(PRESENT_HTML)?.[1] ?? '';
+    expect(open).toContain('document.body.appendChild(qaMenuEl)');
+  });
   // The meeting chat (chat/service.ts): a fixed drawer (not a popover inside
   // a scroller, gotcha #27), opened from the header, the menu bar and ⌘J,
   // and fed from every place the page can select or attach.

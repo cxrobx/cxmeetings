@@ -66,7 +66,7 @@
 | GET | `/debug` | Server metrics and diagnostics |
 | GET | `/transcript` | Live session transcript (refresh persistence) |
 | GET | `/settings` | Effective settings + shareTranscript state |
-| POST | `/settings` | Persist + apply settings (`evalCadenceMs, suggestionTtlMs, monitorDefaults, retentionDays, summaryAutoWrite, shareTranscript`); unknown fields reported in `ignored` |
+| POST | `/settings` | Persist + apply settings (`evalCadenceMs, suggestionTtlMs, monitorDefaults, retentionDays, summaryAutoWrite, matchVaultAppearance, showFilterBar, shareTranscript`); unknown fields reported in `ignored` |
 | GET | `/projects` | Scan `~/Projects/**/CLAUDE.md` for project pickers |
 | GET | `/calendar/upcoming` | Upcoming meetings from cxmail's invite DB (read-only; `{ meetings: [] }` when absent) |
 | GET | `/coach/standing-goals` | Goals the last five self-reviews keep repeating, with evidence; pre-fills the start form's private goals (`{ goals: [] }` with no pattern yet) |

@@ -27,6 +27,12 @@ export interface CopilotSettings {
    */
   matchVaultAppearance: boolean;
   /**
+   * Show the dashboard's filter bar over the cards (chips for All, Unread and
+   * each card type). Off by default: the rows and the focus level are the
+   * main way to keep the middle column quiet; the bar is opt-in.
+   */
+  showFilterBar: boolean;
+  /**
    * Who the user is, for meeting prep's "where do we overlap" research. Empty
    * means the built-in profile in prep/agent.ts — kept empty by default so a
    * save never freezes that default into settings.json.
@@ -69,6 +75,7 @@ function defaults(): CopilotSettings {
     retentionDays: envNumber('RETENTION_DAYS') ?? 90,
     summaryAutoWrite: true,
     matchVaultAppearance: true,
+    showFilterBar: false,
     aboutMe: '',
   };
 }
@@ -98,6 +105,7 @@ function sanitize(raw: Partial<CopilotSettings>): CopilotSettings {
     summaryAutoWrite: typeof raw.summaryAutoWrite === 'boolean' ? raw.summaryAutoWrite : base.summaryAutoWrite,
     matchVaultAppearance:
       typeof raw.matchVaultAppearance === 'boolean' ? raw.matchVaultAppearance : base.matchVaultAppearance,
+    showFilterBar: typeof raw.showFilterBar === 'boolean' ? raw.showFilterBar : base.showFilterBar,
     aboutMe: typeof raw.aboutMe === 'string' ? raw.aboutMe.trim().slice(0, ABOUT_ME_MAX_CHARS) : base.aboutMe,
   };
   return merged;
