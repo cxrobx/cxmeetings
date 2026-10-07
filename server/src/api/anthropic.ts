@@ -41,6 +41,9 @@ export async function anthropicTriageJson(
     {
       model: HAIKU_MODEL,
       max_tokens: options.maxTokens ?? 512,
+      // Haiku 5.5 thinks by default, and thinking counts toward these small
+      // caps and the 10 s budget; triage ran without it on Haiku 4.5.
+      thinking: { type: 'disabled' },
       system: systemPrompt,
       messages: [{ role: 'user', content: prompt }],
       ...(options.schema
@@ -62,8 +65,8 @@ export async function anthropicTriageJson(
   recordLlmUsage({
     inputTokens: u?.input_tokens ?? 0,
     outputTokens: u?.output_tokens ?? 0,
-    inputDollarsPerMillion: Number(process.env.COPILOT_ANTHROPIC_INPUT_PER_MILLION || 2),
-    outputDollarsPerMillion: Number(process.env.COPILOT_ANTHROPIC_OUTPUT_PER_MILLION || 10),
+    inputDollarsPerMillion: Number(process.env.COPILOT_ANTHROPIC_INPUT_PER_MILLION || 0.1),
+    outputDollarsPerMillion: Number(process.env.COPILOT_ANTHROPIC_OUTPUT_PER_MILLION || 0.5),
   });
   log('api/anthropic', `${tag} model=${HAIKU_MODEL} latencyMs=${elapsed} in=${u?.input_tokens ?? 0} out=${u?.output_tokens ?? 0} cacheRead=${u?.cache_read_input_tokens ?? 0} cacheWrite=${u?.cache_creation_input_tokens ?? 0}`);
 
@@ -109,6 +112,7 @@ export async function anthropicHaikuCachedJson(params: {
     {
       model: HAIKU_MODEL,
       max_tokens: params.maxTokens ?? 1024,
+      thinking: { type: 'disabled' },
       system: [
         {
           type: 'text',
@@ -130,8 +134,8 @@ export async function anthropicHaikuCachedJson(params: {
   recordLlmUsage({
     inputTokens: u?.input_tokens ?? 0,
     outputTokens: u?.output_tokens ?? 0,
-    inputDollarsPerMillion: Number(process.env.COPILOT_ANTHROPIC_INPUT_PER_MILLION || 1),
-    outputDollarsPerMillion: Number(process.env.COPILOT_ANTHROPIC_OUTPUT_PER_MILLION || 5),
+    inputDollarsPerMillion: Number(process.env.COPILOT_ANTHROPIC_INPUT_PER_MILLION || 0.1),
+    outputDollarsPerMillion: Number(process.env.COPILOT_ANTHROPIC_OUTPUT_PER_MILLION || 0.5),
   });
   log('api/anthropic', `${tag} model=${HAIKU_MODEL} latencyMs=${elapsed} in=${u?.input_tokens ?? 0} out=${u?.output_tokens ?? 0} cacheRead=${u?.cache_read_input_tokens ?? 0} cacheWrite=${u?.cache_creation_input_tokens ?? 0}`);
 

@@ -24,7 +24,7 @@ export const MODEL_CONFIG = {
   // meeting as context and web search. Metered, like fast research; the
   // subscription CLI (the worker model) answers when the API is off or fails.
   chat: process.env.COPILOT_CHAT_MODEL || 'gpt-6-luna',
-  haiku: process.env.COPILOT_HAIKU_MODEL || 'claude-haiku-4-5-20251001',
+  haiku: process.env.COPILOT_HAIKU_MODEL || 'claude-haiku-5-5',
   suggestion: process.env.COPILOT_SUGGEST_MODEL || process.env.COPILOT_SUGGESTION_MODEL || 'claude-sonnet-5-5',
   worker: process.env.COPILOT_WORKER_MODEL || 'claude-sonnet-5-5',
   // Deep research (workers/research.ts): an agent loop with WebSearch/WebFetch
@@ -70,11 +70,11 @@ export const EFFORT_CONFIG = {
 
 /**
  * The --effort args for a `claude` spawn. A caller that names no effort gets
- * `medium`. Haiku 4.5 has no effort control, and
+ * `medium`. Haiku 4.5 has no effort control (Haiku 5.5 does), and
  * with no model the CLI's own default model is unknown, so neither gets one.
  */
 export function cliEffortArgs(model: string | undefined, effort?: CliEffort): string[] {
-  if (!model || model.includes('haiku')) return [];
+  if (!model || model.includes('haiku-4')) return [];
   return ['--effort', effort ?? 'medium'];
 }
 

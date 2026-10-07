@@ -61,6 +61,7 @@ describe('central model and provider configuration', () => {
     expect(cliEffortArgs('claude-sonnet-5-5')).toEqual(['--effort', 'medium']);
     // Haiku 4.5 has no effort control; with no model the CLI's own default is unknown.
     expect(cliEffortArgs('claude-haiku-4-5-20251001')).toEqual([]);
+    expect(cliEffortArgs('claude-haiku-5-5')).toEqual(['--effort', 'medium']);
     expect(cliEffortArgs(undefined)).toEqual([]);
   });
 });
