@@ -65,4 +65,80 @@ final class MicEngineQueueTests: XCTestCase {
         wait(for: [settled], timeout: 2)
         XCTAssertTrue(capture.micEngineForTesting === good.engine)
     }
+    // 2026-10-07: every restart retried the pinned built-in mic, which would
+    // not start while the AirPods were in a call, so the mic looped between
+    // devices until a restart hung. Once the default had to stand in, it stays.
+    func testAFallbackToTheDefaultSticksForTheSession() throws {
+        let capture = AudioCaptureManager()
+        try XCTSkipIf(AppSettings.micDevice == .systemDefault, "needs a pinned mic preference")
+        var asked: [MicDevicePicker.Preference] = []
+        capture.micEngineFactory = { preference in
+            asked.append(preference)
+            return self.fakeStart()  // pinned: nil, i.e. it ended on the default
+        }
+        for _ in 0..<2 {
+            let opened = expectation(description: "opened")
+            capture.openMic { _ in opened.fulfill() }
+            wait(for: [opened], timeout: 2)
+        }
+        XCTAssertEqual(asked.count, 2)
+        XCTAssertNotEqual(asked[0], .systemDefault)
+        XCTAssertEqual(asked[1], .systemDefault)
+    }
+
+    // 2026-10-07: one -10868 on the first open aborted the session.
+    func testTheFirstOpenRetriesAPlainFailure() async throws {
+        let capture = AudioCaptureManager()
+        var calls = 0
+        capture.micEngineFactory = { _ in
+            calls += 1
+            if calls < 3 { throw AudioCaptureError.microphoneUnavailable }
+            return self.fakeStart()
+        }
+        try await capture.openMicForStart()
+        XCTAssertEqual(calls, 3)
+    }
+
+    func testTheFirstOpenGivesUpAfterThreeAttempts() async {
+        let capture = AudioCaptureManager()
+        var calls = 0
+        capture.micEngineFactory = { _ in
+            calls += 1
+            throw AudioCaptureError.microphoneUnavailable
+        }
+        do {
+            try await capture.openMicForStart()
+            XCTFail("expected a failure")
+        } catch {
+            XCTAssertEqual(calls, 3)
+        }
+    }
+
+    // 2026-10-07: the process tap's AudioDeviceStart never returned and the
+    // session sat in priming for good. A start that never answers must end.
+    func testAMeetingAudioStartThatNeverAnswersTimesOutAndIsUndoneLate() async {
+        var finishLate: ((Result<Int, Error>) -> Void)?
+        let undone = expectation(description: "late start undone")
+        do {
+            _ = try await AudioCaptureManager.boundedStart(0.2, what: "test", start: { done in
+                finishLate = done  // Core Audio never answers
+            }, onLate: { value in
+                XCTAssertEqual(value, 7)
+                undone.fulfill()
+            })
+            XCTFail("expected meetingAudioStuck")
+        } catch AudioCaptureError.meetingAudioStuck {
+        } catch {
+            XCTFail("expected meetingAudioStuck, got \(error)")
+        }
+        finishLate?(.success(7))
+        await fulfillment(of: [undone], timeout: 1)
+    }
+
+    func testABoundedStartThatAnswersReturnsItsValue() async throws {
+        let value = try await AudioCaptureManager.boundedStart(2, what: "test", start: { done in
+            DispatchQueue.global().async { done(.success(42)) }
+        }, onLate: { _ in XCTFail("not late") })
+        XCTAssertEqual(value, 42)
+    }
 }

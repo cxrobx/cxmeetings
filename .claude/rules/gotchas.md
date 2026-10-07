@@ -1,6 +1,6 @@
 # Known Gotchas
 
-Organized by category. 34 items + recovery playbook, condensed format. Original numbering preserved (gaps intentional).
+Organized by category. 35 items + recovery playbook, condensed format. Original numbering preserved (gaps intentional).
 
 ## Index
 
@@ -40,6 +40,7 @@ Organized by category. 34 items + recovery playbook, condensed format. Original 
 | 32 | A newly signed whisper build compiles its Metal shaders once (~10 s) before the first capture | Deployment |
 | 33 | better-sqlite3 below 13 aborts Node 24.19+ when GC frees a statement — the server dies silently | Deployment |
 | 34 | Releasing an AVAudioEngine can deadlock inside Core Audio — never touch the mic engine on the main thread | Environment |
+| 35 | A pinned mic that fails in a call loops restarts; an unbounded Core Audio start leaves Start stuck in priming | Environment |
 | — | **Recovery playbook** (system-wide SCK silence, server crash loops, zombie processes) | — |
 
 Standard categories: Environment, Database, Backend, Frontend, Security, Deployment, External APIs
@@ -240,6 +241,13 @@ this default.
 **Check**: `Tests/MicEngineQueueTests.swift` hangs a fake engine factory forever and requires the main thread to keep running, the next open to succeed on a fresh queue, and the late engine to be discarded.
 **Also**: a pinned mic that will not start now falls back to the system default (`MicDevicePicker.attempts`): the built-in mic refused to start (`-10868`, `InitializeActiveNodesInInputChain`) while AirPods were in a call at 24 kHz, and with no second attempt the session never began. The mic choice is in the dashboard's Settings (the app's bridge: `listMics` / `setMic`).
 **Pattern**: `app/MeetingCopilot/Sources/Core/Audio/AudioCaptureManager.swift` (`openMic`), `Audio/MicDevicePicker.swift` (`attempts`, `choices`).
+
+### 35. A Pinned Mic That Fails in a Call Loops Restarts; an Unbounded Core Audio Start Leaves Start Stuck in Priming
+**Symptom** (2026-10-07, AirPods in a Zoom call, mic pinned to the built-in): Start failed once with `microphoneUnavailable`; the second Start ran but app.log shows `mic pinned to "MacBook Pro Microphone"` → `-10868` → `falling back to the system default` → `mic engine configuration changed and engine stopped` every 1-2 s, then `mic engine stuck in Core Audio … abandoned its thread`; the third Start logged `VAD emitters active` and nothing more, and every later click was `startSessionFromWeb ignored — state=priming` with nothing on screen. Only a relaunch cleared it.
+**Cause**: three in a row. (1) The session's first mic open had no retry, and both devices returned -10868 for a moment while the AirPods went into call mode. (2) Every restart re-read the preference, so it tried the built-in mic first again; that attempt, then the fallback, kept the AirPods renegotiating, which stopped the engine, which restarted it. (3) The process tap's `AudioDeviceStart` (and ScreenCaptureKit's start) had no timeout, and with a mic thread already stuck in Core Audio it never returned.
+**Solution** (applied 2026-10-07): `openMicForStart` retries a plain failure twice (0.5 s, 1 s); `micFallbackForSession` keeps restarts on the system default once the pinned mic has failed in that session (cleared by `stopCapture`); `boundedStart` caps the tap and ScreenCaptureKit starts at `meetingStartTimeoutSec` (10 s), so a stuck tap falls back to ScreenCaptureKit, a stuck ScreenCaptureKit fails the Start with `meetingAudioStuck` and rolls back to idle, and a start that answers late is stopped. A Start click during priming now says "Still starting audio".
+**Check**: `Tests/MicEngineQueueTests.swift` (`testAFallbackToTheDefaultSticksForTheSession`, `testTheFirstOpenRetriesAPlainFailure`, `testAMeetingAudioStartThatNeverAnswersTimesOutAndIsUndoneLate`).
+**Pattern**: `app/MeetingCopilot/Sources/Core/Audio/AudioCaptureManager.swift` (`boundedStart`, `openMicForStart`, `micFallbackForSession`), `Session/SessionManager.swift` (`startSessionFromWeb`).
 
 ### 11. WKWebView Needs Health Polling Before Loading Localhost
 **Symptom**: Blank white panel on app launch

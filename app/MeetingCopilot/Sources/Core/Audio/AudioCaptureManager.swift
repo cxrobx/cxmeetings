@@ -148,6 +148,20 @@ final class AudioCaptureManager: NSObject {
     @ObservationIgnored private var micOpInFlight = false
     @ObservationIgnored private var abandonedMicQueues = 0
     static let micOpTimeoutSec: TimeInterval = 8.0
+    /// Set when the pinned mic would not start and the system default did.
+    /// Restarts for the rest of the session go straight to the default: on
+    /// 2026-10-07 every AirPods configuration change restarted the mic, each
+    /// restart tried the built-in mic first (-10868 while the AirPods were in
+    /// a call), fell back, and the AirPods renegotiated again, a loop every
+    /// 1-2 s until a restart hung in Core Audio. Cleared by `stopCapture`.
+    @ObservationIgnored private var micFallbackForSession = false
+    /// How long a meeting-track start (process tap, ScreenCaptureKit) may
+    /// take before it counts as stuck. On 2026-10-07 `AudioDeviceStart` never
+    /// returned, likely behind a mic thread already stuck in Core Audio, and
+    /// the session sat in priming for good, ignoring every Start.
+    static let meetingStartTimeoutSec: TimeInterval = 10.0
+    /// Waits before the 2nd and 3rd attempt at the session's first mic open.
+    static let micStartRetryDelaysNs: [UInt64] = [500_000_000, 1_000_000_000]
     /// Each abandoned queue may hold a thread forever, so the count is capped.
     private static let maxAbandonedMicQueues = 4
     /// Tests swap the real engine for a fake (a hung Core Audio call). Runs on
@@ -336,11 +350,7 @@ final class AudioCaptureManager: NSObject {
             try await startMeetingAudioCapture()
 
             // Start microphone capture via AVAudioEngine, on `micQueue`
-            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-                DispatchQueue.main.async {
-                    self.openMic { cont.resume(with: $0) }
-                }
-            }
+            try await openMicForStart()
 
             // Set up audio device change monitoring
             routeObserver = AudioRouteObserver(
@@ -442,7 +452,10 @@ final class AudioCaptureManager: NSObject {
         // MUST guard them too or it'll abort the process on stop. See
         // gotcha #18 and ObjCExceptionBridge usage elsewhere in this file.
         // Off the main thread like every other engine teardown (see `micQueue`).
-        await MainActor.run { self.closeMic() }
+        await MainActor.run {
+            self.closeMic()
+            self.micFallbackForSession = false
+        }
         audioConverter = nil
 
         // Clean up observer
@@ -530,17 +543,16 @@ final class AudioCaptureManager: NSObject {
             self?.ingestMeetingSamples(samples, int16: nil, peak: peak)
         }
         // AudioDeviceStart blocks while macOS shows the first-run System
-        // Audio Recording prompt, so keep it off the caller's thread.
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        // Audio Recording prompt, so keep it off the caller's thread. It can
+        // also block forever on a wedged Core Audio, so it is bounded: a
+        // timeout falls back to ScreenCaptureKit, and a start that finishes
+        // late is stopped. (A first-run prompt left open past the timeout
+        // costs that one session the tap; the grant still lands.)
+        try await Self.boundedStart(Self.meetingStartTimeoutSec, what: "process tap", start: { done in
             DispatchQueue.global(qos: .userInitiated).async {
-                do {
-                    try tap.start()
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+                done(Result { try tap.start() })
             }
-        }
+        }, onLate: { _ in tap.stop() })
         systemTap = tap
         let outputName = getDefaultDeviceName(selector: kAudioHardwarePropertyDefaultOutputDevice)
         appLog("[AudioCapture] Process tap started. output=\"\(outputName)\" input=\"\(getDefaultDeviceName(selector: kAudioHardwarePropertyDefaultInputDevice))\"")
@@ -658,7 +670,9 @@ final class AudioCaptureManager: NSObject {
             sampleHandlerQueue: DispatchQueue(label: "com.meetingcopilot.system-audio", qos: .userInteractive)
         )
 
-        try await stream.startCapture()
+        try await Self.boundedStart(Self.meetingStartTimeoutSec, what: "ScreenCaptureKit", start: { done in
+            stream.startCapture { error in done(error.map { .failure($0) } ?? .success(())) }
+        }, onLate: { _ in stream.stopCapture { _ in } })
         self.scStream = stream
 
         // Snapshot the output device at capture start — invaluable when the
@@ -678,6 +692,68 @@ final class AudioCaptureManager: NSObject {
         let hardwareFormat: AVAudioFormat
     }
 
+    /// Run a Core Audio start that may never answer, and give up after
+    /// `timeout` with `.meetingAudioStuck`. `start` must call its completion
+    /// exactly once, on any thread. A success that arrives after the timeout
+    /// goes to `onLate` so the caller can undo it.
+    static func boundedStart<T>(
+        _ timeout: TimeInterval,
+        what: String,
+        start: (@escaping (Result<T, Error>) -> Void) -> Void,
+        onLate: @escaping (T) -> Void
+    ) async throws -> T {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<T, Error>) in
+            let lock = NSLock()
+            var settled = false
+            func claim() -> Bool {
+                lock.lock(); defer { lock.unlock() }
+                if settled { return false }
+                settled = true
+                return true
+            }
+            start { result in
+                if claim() {
+                    cont.resume(with: result)
+                } else if case .success(let value) = result {
+                    appLog("[AudioCapture] \(what) start finished after its timeout — undoing it")
+                    onLate(value)
+                }
+            }
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + timeout) {
+                guard claim() else { return }
+                appLog("[AudioCapture] \(what) start stuck in Core Audio for \(Int(timeout))s — giving up on it")
+                cont.resume(throwing: AudioCaptureError.meetingAudioStuck)
+            }
+        }
+    }
+
+    /// The session's first mic open. Retries twice (0.5 s, then 1 s) on a
+    /// plain failure: on 2026-10-07 both the built-in and the AirPods mic
+    /// refused to start (-10868) for a moment while the AirPods were going
+    /// into call mode, and one failed attempt aborted the whole session. A
+    /// stuck open is not retried; it has already waited `micOpTimeoutSec`.
+    func openMicForStart() async throws {
+        var attempt = 0
+        while true {
+            do {
+                try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                    DispatchQueue.main.async {
+                        self.openMic { cont.resume(with: $0) }
+                    }
+                }
+                return
+            } catch AudioCaptureError.microphoneStuck {
+                throw AudioCaptureError.microphoneStuck
+            } catch {
+                guard attempt < Self.micStartRetryDelaysNs.count else { throw error }
+                let delay = Self.micStartRetryDelaysNs[attempt]
+                attempt += 1
+                appLog("[AudioCapture] mic would not open (\(error.localizedDescription)) — retrying in \(delay / 1_000_000) ms (\(attempt)/\(Self.micStartRetryDelaysNs.count))")
+                try? await Task.sleep(nanoseconds: delay)
+            }
+        }
+    }
+
     /// Open (or reopen) the mic on `micQueue`: release the old engine there,
     /// start a new one, then apply it here on the main thread. Must be called
     /// on the main thread; `completion` runs there. Fails with
@@ -691,7 +767,7 @@ final class AudioCaptureManager: NSObject {
         removeEngineConfigObserver()
         let old = audioEngine
         audioEngine = nil
-        let preference = AppSettings.micDevice
+        let preference: MicDevicePicker.Preference = micFallbackForSession ? .systemDefault : AppSettings.micDevice
         let queue = micQueue
         let factory = micEngineFactory
         queue.async { [weak self] in
@@ -713,6 +789,10 @@ final class AudioCaptureManager: NSObject {
                 self.micOpInFlight = false
                 switch result {
                 case .success(let start):
+                    if preference != .systemDefault, start.pinned == nil, !self.micFallbackForSession {
+                        self.micFallbackForSession = true
+                        appLog("[AudioCapture] mic stays on the system default for the rest of this session (the chosen mic would not start)")
+                    }
                     self.apply(start)
                     completion(.success(()))
                 case .failure(let error):
@@ -1664,6 +1744,7 @@ enum AudioCaptureError: Error, LocalizedError {
     case noDisplayFound
     case microphoneUnavailable
     case microphoneStuck
+    case meetingAudioStuck
     case screenCapturePermissionDenied
     case screenRecordingPermissionRequired
 
@@ -1673,6 +1754,8 @@ enum AudioCaptureError: Error, LocalizedError {
         case .microphoneUnavailable: return "Microphone is not available"
         case .microphoneStuck:
             return "The microphone did not start: Core Audio stopped answering. Press Start again, or switch the input in System Settings → Sound."
+        case .meetingAudioStuck:
+            return "Meeting audio did not start: Core Audio stopped answering. Quit and relaunch Meeting Copilot; if that doesn't clear it, restart the Mac."
         case .screenCapturePermissionDenied: return "Screen recording permission not granted"
         case .screenRecordingPermissionRequired:
             return "Screen Recording permission is required. After enabling Meeting Copilot in System Settings → Privacy & Security → Screen Recording, quit and relaunch the app."

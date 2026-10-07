@@ -212,6 +212,12 @@ final class SessionManager {
         }
         guard state == .idle || state == .archived else {
             appLog("[Session] startSessionFromWeb ignored — state=\(state.rawValue)")
+            // Never a silent no-op: on 2026-10-07 a stuck start ignored every
+            // click with nothing on screen. A stuck start now ends itself
+            // (`meetingStartTimeoutSec`, `micOpTimeoutSec`) and says so.
+            if state == .priming {
+                surfaceError("Still starting audio. If the session hasn't started in about 30 seconds, quit and relaunch Meeting Copilot.")
+            }
             return
         }
         if consent == false {
