@@ -27,6 +27,8 @@
 | `chat.send` | A question for the live meeting's chat (`chat/service.ts`). The app's menu bar Ask sends it; the dashboard asks over `POST /present/chat` instead, which also works on a stored meeting. Ignored with no live meeting | `text`, `origin?: 'menubar'` (default) \| `'dashboard'` |
 | `chat.cancel` | Stop the live meeting's chat answers (queued or streaming) | — |
 
+**`requestId` (optional, since 2026-10-16):** `chat.send`, `pulse.request`, `coach.ask` and `action.trigger` take a `requestId` string. A client that sends one gets, on its own socket only (never broadcast), a `request.ack` (`requestId, ok, error?` plus `sessionId, userMessageId, assistantMessageId` for chat, `actionId, actionType` for an action) and, for `pulse.request` and `coach.ask`, one `request.result` (`requestId, kind, ok, error?, title?, body?` plus `pulse` or `suggestion`, `empty?`). Every waiter of a pulse kind gets the next read of that kind; a session stop fails the waiters. Without a `requestId` nothing changes. The MCP (`server/src/mcp.ts`) is the client that uses it.
+
 ### Server → Client Messages
 
 | Type | Purpose | Key fields |

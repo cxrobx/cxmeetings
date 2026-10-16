@@ -136,6 +136,7 @@ type InboundMessage =
       cardContent?: string;
       baseWireframe?: string;
       baseHtml?: string;
+      requestId?: string;
     }
   | { type: 'feature.toggle'; feature: 'factcheck' | 'coach'; enabled: boolean }
   | { type: 'meeting.goals'; goals: string }
@@ -146,12 +147,12 @@ type InboundMessage =
   | { type: 'meeting.prep'; prepId?: string; brief?: string; sources?: unknown }
   // The coach's question buttons and the app's hotkeys: a pulse read now.
   // No kind is the Wrap-up button (the only kind before 2026-09-22).
-  | { type: 'pulse.request'; kind?: 'closeout' | 'checkin' | 'missed' }
+  | { type: 'pulse.request'; kind?: 'closeout' | 'checkin' | 'missed'; requestId?: string }
   // "Suggest": one coach card now, optionally about the prompt box's text.
-  | { type: 'coach.ask'; focus?: string }
+  | { type: 'coach.ask'; focus?: string; requestId?: string }
   // Meeting chat from the app (the menu bar's Ask box). The dashboard asks
   // over POST /present/chat, which also works on a stored meeting.
-  | { type: 'chat.send'; text?: string; origin?: 'menubar' | 'dashboard' }
+  | { type: 'chat.send'; text?: string; origin?: 'menubar' | 'dashboard'; requestId?: string }
   | { type: 'chat.cancel' }
   // The dashboard's "Restart mic" button: relayed to the app.
   | { type: 'capture.restartMic' };
@@ -447,6 +448,34 @@ const ASK_QUESTION: Record<AskKind, string> = {
   wrapup: 'Wrap-up check',
   suggest: 'Suggest',
 };
+
+// ─── Request correlation (the MCP, server/src/mcp.ts) ──────────────────────
+// A client that puts a `requestId` on chat.send / pulse.request / coach.ask /
+// action.trigger gets `request.ack` (and, for pulse and coach, one
+// `request.result`) sent to its own socket only, so it can tell its answer
+// from another client's. Nothing is broadcast and nothing changes for a client
+// that sends no requestId (the app, the dashboard).
+type ReplyFn = (message: Record<string, unknown>) => void;
+interface Requester { reply: ReplyFn; requestId: string; at: number }
+function requesterFor(message: { requestId?: unknown }, reply?: ReplyFn): Requester | null {
+  const id = typeof message.requestId === 'string' ? message.requestId.slice(0, 100) : '';
+  return id && reply ? { reply, requestId: id, at: Date.now() } : null;
+}
+function ackRequest(r: Requester | null, body: Record<string, unknown>): void {
+  r?.reply({ type: 'request.ack', requestId: r.requestId, ...body });
+}
+function resultRequest(r: Requester | null, body: Record<string, unknown>): void {
+  r?.reply({ type: 'request.result', requestId: r.requestId, ...body });
+}
+// Asked pulse reads waiting for their answer, by kind. Every waiter of a kind
+// gets the next read of that kind (two asks of one kind share one read).
+const pulseWaiters = new Map<AskKind, Requester[]>();
+function settlePulseWaiters(kind: AskKind, body: Record<string, unknown>): void {
+  const waiting = pulseWaiters.get(kind);
+  if (!waiting) return;
+  pulseWaiters.delete(kind);
+  for (const r of waiting) resultRequest(r, { kind, ...body });
+}
 pulse.on('running', (d: { mode: 'pulse' | 'closeout'; trigger: string }) => {
   broadcast({ type: 'pulse.running', mode: d.mode, trigger: d.trigger });
 });
@@ -457,6 +486,7 @@ pulse.on('failed', (d: { mode: string; trigger: PulseTrigger; reason: string; la
   const kind = ASK_KIND_BY_TRIGGER[d.trigger];
   if (kind) {
     broadcast({ type: 'ask.state', kind, phase: 'failed', title: `${ASK_QUESTION[kind]} didn't come back`, body: d.reason });
+    settlePulseWaiters(kind, { ok: false, error: d.reason });
   }
 });
 pulse.on('skipped', (d: { reason: string }) => {
@@ -483,6 +513,7 @@ pulse.on('pulse', (p: MeetingPulseResult) => {
   const kind = ASK_KIND_BY_TRIGGER[p.trigger];
   if (kind) {
     broadcast({ type: 'ask.state', kind, phase: 'done', ...askAnswerText(p) });
+    settlePulseWaiters(kind, { ok: true, pulse: p, ...askAnswerText(p) });
   } else if (p.mode === 'closeout' && p.closeOut.length + p.escalations.length > 0) {
     const first = [...p.escalations, ...p.closeOut].slice(0, 2).map((i) => i.text);
     broadcast({ type: 'pulse.closeout', body: first.join(' · ') });
@@ -810,7 +841,9 @@ function handleWsConnection(ws: WebSocket, label: string): void {
     }
     try {
       const message = JSON.parse(raw.toString()) as InboundMessage;
-      await handleInboundMessage(message);
+      await handleInboundMessage(message, (reply) => {
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(reply));
+      });
     } catch (error) {
       // Use debugLog (writes to server.log) so handler failures are diagnosable
       // without needing to capture the child process's stderr pipe.
@@ -897,7 +930,7 @@ async function transcribeChunk(
 
 // ─── Inbound Message Handler ───────────────────────────────────────────────
 
-async function handleInboundMessage(message: InboundMessage): Promise<void> {
+async function handleInboundMessage(message: InboundMessage, reply?: ReplyFn): Promise<void> {
   if (message.type !== 'audio_chunk') {
     debugLog(`[Inbound] ${message.type}`);
   }
@@ -1212,6 +1245,7 @@ async function handleInboundMessage(message: InboundMessage): Promise<void> {
       postSessionState = 'ending';
       lastSessionId = sessionStore.id;
       stopTrackWatch();
+      for (const kind of [...pulseWaiters.keys()]) settlePulseWaiters(kind, { ok: false, error: 'The meeting ended' });
       // Ending while paused ends the pause: no marker, nothing came after it.
       const endedPause = pauseClock.resume();
       if (endedPause) {
@@ -1549,11 +1583,20 @@ async function handleInboundMessage(message: InboundMessage): Promise<void> {
 
     case 'pulse.request': {
       const kind: AskKind = message.kind === 'checkin' ? 'checkin' : message.kind === 'missed' ? 'missed' : 'wrapup';
+      const requester = requesterFor(message, reply);
       if (!sessionActive || !pulse.isRunning()) {
         // Say so: a button left on "Reading…" forever is how this used to fail.
         const reason = !sessionActive ? 'No meeting is live' : 'The meeting pulse is off (COPILOT_PULSE=0)';
         broadcast({ type: 'ask.state', kind, phase: 'failed', title: `${ASK_QUESTION[kind]} didn't run`, body: reason });
+        ackRequest(requester, { ok: false, error: reason });
         break;
+      }
+      if (requester) {
+        // A waiter older than any read could take is dropped, so a read that
+        // was skipped (superseded) can't leave one behind for good.
+        const fresh = (pulseWaiters.get(kind) ?? []).filter((r) => Date.now() - r.at < 10 * 60_000);
+        pulseWaiters.set(kind, [...fresh, requester]);
+        ackRequest(requester, { ok: true, kind });
       }
       eventLogger?.log('pulse.request', { kind });
       broadcast({ type: 'ask.state', kind, phase: 'started', title: ASK_QUESTION[kind], body: 'Reading the meeting\u2026 about 30 seconds.' });
@@ -1570,10 +1613,13 @@ async function handleInboundMessage(message: InboundMessage): Promise<void> {
       break;
     }
     case 'coach.ask': {
+      const requester = requesterFor(message, reply);
       if (!sessionActive || !sessionStore) {
         broadcast({ type: 'ask.state', kind: 'suggest', phase: 'failed', title: "Suggest didn't run", body: 'No meeting is live' });
+        ackRequest(requester, { ok: false, error: 'No meeting is live' });
         break;
       }
+      ackRequest(requester, { ok: true, kind: 'suggest' });
       const focus = (message.focus ?? '').toString();
       eventLogger?.log('coach.ask', { focusLength: focus.length });
       broadcast({ type: 'ask.state', kind: 'suggest', phase: 'started' });
@@ -1582,8 +1628,12 @@ async function handleInboundMessage(message: InboundMessage): Promise<void> {
         broadcast(card
           ? { type: 'ask.state', kind: 'suggest', phase: 'done', title: card.headline || 'Suggest', body: card.phrasing }
           : { type: 'ask.state', kind: 'suggest', phase: 'done', empty: true, title: 'Suggest', body: 'Nothing worth saying right now.' });
+        resultRequest(requester, card
+          ? { kind: 'suggest', ok: true, suggestion: card, title: card.headline || 'Suggest', body: card.phrasing }
+          : { kind: 'suggest', ok: true, suggestion: null, empty: true, title: 'Suggest', body: 'Nothing worth saying right now.' });
       }).catch((err: unknown) => {
         const reason = err instanceof Error ? err.message : String(err);
+        resultRequest(requester, { kind: 'suggest', ok: false, error: reason === 'Aborted' ? 'The meeting ended' : reason });
         if (reason === 'Aborted') return; // the meeting ended under it
         debugLog(`[Coach] ask failed: ${reason}`);
         broadcast({ type: 'ask.state', kind: 'suggest', phase: 'failed', title: "Suggest didn't come back", body: reason });
@@ -1595,16 +1645,21 @@ async function handleInboundMessage(message: InboundMessage): Promise<void> {
       // The menu bar's Ask: the live meeting's chat. The answer comes back as
       // chat.message events, which the app shows in the popover.
       const sessionId = sessionStore?.id;
+      const requester = requesterFor(message, reply);
       if (!sessionActive || !sessionId) {
         debugLog('[Chat] chat.send with no live meeting');
+        ackRequest(requester, { ok: false, error: 'No meeting is live' });
         break;
       }
       try {
         const turn = chat.send({ sessionId, text: message.text, origin: message.origin === 'dashboard' ? 'dashboard' : 'menubar' });
         eventLogger?.log('chat.send', { origin: message.origin ?? 'menubar', length: (message.text ?? '').length });
         turn.done.catch(() => {});
+        ackRequest(requester, { ok: true, sessionId, userMessageId: turn.user.id, assistantMessageId: turn.assistant.id });
       } catch (err) {
-        debugLog(`[Chat] ${err instanceof ChatError ? err.message : safeErrorMessage(err)}`);
+        const reason = err instanceof ChatError ? err.message : safeErrorMessage(err);
+        debugLog(`[Chat] ${reason}`);
+        ackRequest(requester, { ok: false, error: reason });
       }
       break;
     }
@@ -1621,8 +1676,10 @@ async function handleInboundMessage(message: InboundMessage): Promise<void> {
     }
 
     case 'action.trigger': {
+      const requester = requesterFor(message, reply);
       if (!sessionActive || !sessionStore) {
         console.warn('[Action] No active session for manual trigger');
+        ackRequest(requester, { ok: false, error: 'No meeting is live' });
         return;
       }
 
@@ -1634,6 +1691,7 @@ async function handleInboundMessage(message: InboundMessage): Promise<void> {
         const transcriptRecords = sessionStore.getTranscript();
         if (transcriptRecords.length === 0) {
           debugLog('[Action] Review trigger ignored — no transcript yet');
+          ackRequest(requester, { ok: false, error: 'Nothing has been said yet' });
           return;
         }
         const session = sessionStore.getSession();
@@ -1663,6 +1721,7 @@ async function handleInboundMessage(message: InboundMessage): Promise<void> {
         });
         if (!reviewAction) {
           debugLog('[Action] Review trigger filtered by dedup');
+          ackRequest(requester, { ok: false, error: 'A matching card is already running' });
           return;
         }
         sessionStore.addAction({
@@ -1690,6 +1749,7 @@ async function handleInboundMessage(message: InboundMessage): Promise<void> {
         });
         registry.approve(reviewAction.id);
         eventLogger?.log('action.approved', { actionId: reviewAction.id, source: 'manual-review' });
+        ackRequest(requester, { ok: true, actionId: reviewAction.id, actionType: reviewAction.type });
         break;
       }
 
@@ -1793,6 +1853,7 @@ async function handleInboundMessage(message: InboundMessage): Promise<void> {
       const action = registry.suggest(suggestion, isCardDerived ? { force: true } : undefined);
       if (!action) {
         debugLog('[Action] Manual trigger filtered by dedup');
+        ackRequest(requester, { ok: false, error: 'A matching card is already running' });
         return;
       }
 
@@ -1833,6 +1894,7 @@ async function handleInboundMessage(message: InboundMessage): Promise<void> {
       // Auto-approve immediately — manual triggers bypass approval flow
       registry.approve(action.id);
       eventLogger?.log('action.approved', { actionId: action.id, source: 'manual' });
+      ackRequest(requester, { ok: true, actionId: action.id, actionType: action.type });
 
       break;
     }

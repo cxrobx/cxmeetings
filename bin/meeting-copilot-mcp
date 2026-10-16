@@ -1,0 +1,45 @@
+#!/bin/sh
+# Meeting Copilot's stdio MCP server (server/src/mcp.ts), for QuickAsk, Claude
+# Code or any MCP client. A thin client of the running copilot: it needs the
+# app (its server) running, and `cd server && npm run build` once so that
+# server/dist/mcp.js exists. No arguments.
+#
+# GUI apps launch this with a minimal PATH, so Node is found by absolute path.
+# MEETING_COPILOT_NODE names one explicitly. Any Node >= 18 works: the MCP
+# uses no native modules.
+set -eu
+
+here=$(cd "$(dirname "$0")" && pwd -P)
+entry="$here/../server/dist/mcp.js"
+if [ ! -f "$entry" ]; then
+  echo "meeting-copilot-mcp: $entry is missing; run: cd \"$here/../server\" && npm run build" >&2
+  exit 1
+fi
+
+find_node() {
+  if [ -n "${MEETING_COPILOT_NODE:-}" ] && [ -x "$MEETING_COPILOT_NODE" ]; then
+    echo "$MEETING_COPILOT_NODE"; return 0
+  fi
+  for candidate in \
+    "$HOME/Library/Caches/meeting-copilot/node/current/bin/node" \
+    "/Applications/Meeting Copilot.app/Contents/Resources/node/bin/node" \
+    /opt/homebrew/bin/node \
+    /usr/local/bin/node; do
+    if [ -x "$candidate" ]; then echo "$candidate"; return 0; fi
+  done
+  # The newest nvm Node, by version order.
+  if [ -d "$HOME/.nvm/versions/node" ]; then
+    newest=$(ls -1 "$HOME/.nvm/versions/node" 2>/dev/null | sort -t. -k1,1V -k2,2n -k3,3n | tail -n 1)
+    if [ -n "$newest" ] && [ -x "$HOME/.nvm/versions/node/$newest/bin/node" ]; then
+      echo "$HOME/.nvm/versions/node/$newest/bin/node"; return 0
+    fi
+  fi
+  command -v node 2>/dev/null && return 0
+  return 1
+}
+
+if ! node=$(find_node); then
+  echo "meeting-copilot-mcp: no Node found (tried the copilot's pinned Node, the app's, /opt/homebrew, /usr/local, ~/.nvm, PATH). Set MEETING_COPILOT_NODE." >&2
+  exit 1
+fi
+exec "$node" "$entry"
