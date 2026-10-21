@@ -160,7 +160,8 @@ echo "[1/5] Running release tests..."
 # PATH (nvm, Homebrew) must not decide what the gate runs on (gotcha #14).
 [ -n "$RUNTIME_NODE" ] || fail "Couldn't get the pinned Node (scripts/fetch-node.sh); cannot run release tests against the runtime ABI."
 (cd "$PROJECT_DIR/server" && PATH="$(dirname "$RUNTIME_NODE"):$PATH" npm test)
-(cd "$PROJECT_DIR/app/MeetingCopilot" && swift test)
+# --build-system native: see build-app.sh (swiftbuild cannot link CWhisperVAD).
+(cd "$PROJECT_DIR/app/MeetingCopilot" && swift test --build-system native)
 
 echo ""
 echo "[2/5] Packaging app..."

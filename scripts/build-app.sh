@@ -69,8 +69,11 @@ echo "  Installed production dependencies"
 echo ""
 echo "[2/5] Building Swift app (release)..."
 cd "$PROJECT_DIR/app/MeetingCopilot"
-swift build -c release --quiet 2>&1
-SWIFT_BIN="$(swift build -c release --show-bin-path)/MeetingCopilot"
+# --build-system native: Swift 6.4 defaults to the swiftbuild backend, which
+# fails to link the CWhisperVAD C target ("CWhisperVAD.o cannot be found",
+# 2026-10-20). The bin path must come from the same build system.
+swift build -c release --build-system native --quiet 2>&1
+SWIFT_BIN="$(swift build -c release --build-system native --show-bin-path)/MeetingCopilot"
 echo "  Built: $SWIFT_BIN"
 
 # ── Step 3: Assemble .app bundle ─────────────────────────────────────────
