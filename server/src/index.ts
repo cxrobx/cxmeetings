@@ -61,6 +61,7 @@ import { paidApiDisabled } from './api/killswitch.js';
 import { disposeAllWarmSessions } from './persistent-claude.js';
 import { getSettings } from './settings.js';
 import { attachPrepToSession, prepBriefDoc } from './prep/staged.js';
+import { CallBridge, createCallRouter } from './call/bridge.js';
 import { evidenceView, openLiveTabs, type EvidenceTabView } from './present/evidence.js';
 import { LLM_CONFIG, MODEL_CONFIG } from './model-config.js';
 import { TrackWatch, type Track, type TrackState } from './capture/track-watch.js';
@@ -171,6 +172,14 @@ type OutboundMessage =
       /** On resume: the transcript line left where the gap was. */
       marker?: { id: string; label: string; text: string; timestamp: number };
     } & PauseSnapshot)
+  // cxventures.io/call dialed a business (call/bridge.ts): the dashboard draws
+  // the transcript divider. The app ignores it (unknown types are skipped).
+  | {
+      type: 'call.dialing';
+      sessionId: string;
+      companyName: string;
+      marker: { id: string; label: string; text: string; timestamp: number };
+    }
   | ChatEvent
   | {
       type: 'transcript.update';
@@ -429,6 +438,9 @@ let sessionCoachSuggestions: CoachSuggestion[] = [];
 // The user's private goals for this meeting — coach-only context. Content is
 // deliberately NOT logged to the session JSONL (only its length).
 let meetingGoals = '';
+// The business on the line during a calling block (call/bridge.ts). The coach
+// and the chat read it through goalsWith(), so a normal meeting is unchanged.
+const callBridge = new CallBridge();
 
 // ─── Meeting pulse (intelligence/pulse.ts) ─────────────────────────────────
 // A big-picture read every 5 minutes on the subscription CLI, and a close-out
@@ -610,7 +622,7 @@ function coachOptions(): CoachStartOptions {
     transcriptProvider: monitorTranscriptProvider,
     wordCountProvider: monitorWordCountProvider,
     agendaStatusProvider: () => lastAgendaStatus,
-    goalsProvider: () => meetingGoals,
+    goalsProvider: () => callBridge.goalsWith(meetingGoals),
     speakerStatsProvider: monitorSpeakerStats,
     sessionTitle: sessionStore?.getSession()?.title,
     attendees: intelligence.getMeetingContext().attendees,
@@ -708,7 +720,7 @@ const chat = new ChatService({
     ? {
         live: sessionActive,
         agenda: agendaForPulse(),
-        goals: meetingGoals,
+        goals: callBridge.goalsWith(meetingGoals),
         // The prep brief is pinned in the docs; the chat reads it from prep.json.
         docs: (hint) => {
           const docs = intelligence.getContextDocs().filter((d) => !d.pinned);
@@ -729,6 +741,17 @@ const chat = new ChatService({
   log: (message) => log('chat', message),
 });
 app.use(createPresentRouter(registry, { getSessionId: liveSessionId, publish: publishJobs, chat }));
+
+// cxventures.io/call → the business on the line, and its drafted log. The only
+// routes that answer a cross-origin request, from an allowlist (call/bridge.ts).
+app.use(createCallRouter({
+  bridge: callBridge,
+  session: () => ({ store: sessionStore, active: sessionActive }),
+  getDocs: () => intelligence.getContextDocs(),
+  setDocs: (docs) => intelligence.setContextDocs(docs),
+  broadcast: (event) => broadcast(event),
+  log: (message) => log('call', message),
+}));
 
 // Routes (health, preflight, settings, transcribe, projects, debug)
 app.use(createRoutes({
@@ -1097,6 +1120,7 @@ async function handleInboundMessage(message: InboundMessage, reply?: ReplyFn): P
       lastCoachSuggestion = null;
       sessionCoachSuggestions = [];
       meetingGoals = '';
+      callBridge.reset();
       lastAgendaMissingCount = 0;
       applyFeatureFlags();
       broadcast({ type: 'feature.state', features: { ...featureFlags } });
@@ -1440,6 +1464,7 @@ async function handleInboundMessage(message: InboundMessage, reply?: ReplyFn): P
         sessionStore = null;
         eventLogger = null;
         sessionActive = false;
+        callBridge.reset();
         postSessionState = 'archived';
 
         debugLog('[Session] Stopped');

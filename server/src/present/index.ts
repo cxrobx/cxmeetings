@@ -10506,6 +10506,10 @@ export const PRESENT_HTML = `<!DOCTYPE html>
         case 'session.paused':
           pauseOnState(msg);
           break;
+        case 'call.dialing':
+          // cxventures.io/call dialed a business: the divider between calls.
+          if (msg.marker) addSegment({ id: msg.marker.id, text: msg.marker.text, label: msg.marker.label, source: 'system', timestamp: msg.marker.timestamp, wordCount: 0 });
+          break;
         case 'chat.message':
         case 'chat.delta':
           chatOnSocket(msg);
