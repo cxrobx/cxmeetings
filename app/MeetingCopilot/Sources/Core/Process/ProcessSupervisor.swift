@@ -717,7 +717,9 @@ final class ProcessSupervisor {
         // model on first launch, then serves /inference on parakeetPort — the
         // same contract whisper-server exposes.
         process.arguments = ["run", "--frozen", "--script", script, "--port", parakeetPort]
-        process.environment = processEnvironment()
+        var environment = processEnvironment()
+        environment["UV_CACHE_DIR"] = Self.parakeetUVCacheDir
+        process.environment = environment
 
         let pipe = makeOutputPipe(prefix: "Parakeet")
         process.standardOutput = pipe
@@ -802,6 +804,13 @@ final class ProcessSupervisor {
         guard let (_, response) = try? await URLSession.shared.data(for: request) else { return false }
         return (response as? HTTPURLResponse)?.statusCode == 200
     }
+
+    /// The sidecar's own uv cache, which holds the environment `uv run --script`
+    /// builds from the lock. In ~/.cache/uv a `uv cache clean` deletes it (one did
+    /// on 2026-10-21), and the next start then re-downloads mlx and the rest,
+    /// which took 10+ minutes on a slow connection. Nothing cleans this one.
+    nonisolated static let parakeetUVCacheDir =
+        NSString("~/Library/Application Support/Meeting Copilot/uv-cache").expandingTildeInPath
 
     /// Where Parakeet's model lands: huggingface_hub's own order — HF_HUB_CACHE,
     /// then HF_HOME/hub, then ~/.cache/huggingface/hub.
