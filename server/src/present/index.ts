@@ -6336,33 +6336,57 @@ export const PRESENT_HTML = `<!DOCTYPE html>
     document.body.appendChild(banner);
   };
 
+  // The page only says "Ending…" once the stop has really gone out; until then
+  // the meeting is still recording and the button must say so.
+  function enterEnding() {
+    // Optimistic UI: the server may take a minute or two to finish stopping
+    // (auto-summary, self-review, etc.) before it broadcasts
+    // session.state=archived. Flip to "ending" as soon as the stop is
+    // confirmed; the authoritative broadcast settles the final state.
+    sessionState = 'ending';
+    endingMessage = 'Wrapping up — generating summary & self-review…';
+    // Arm the safety watchdog immediately on the optimistic flip — even if the
+    // server's authoritative 'ending'/'archived' broadcasts never arrive, the
+    // UI will recover instead of stranding on "Ending…".
+    armEndingWatchdog();
+    // Freeze the displayed duration at end-press: the meeting is logically
+    // over the moment the stop lands.
+    stopTimer();
+    updateUI();
+  }
+
   window.toggleSession = function() {
     if (sessionState === 'live' || sessionState === 'degraded') {
-      // Send FIRST (browser path) — if the socket is down the stop never
-      // reached the server, so flipping to "ending" would be a lie.
       if (hasNativeBridge()) {
-        window.__copilotNativeBridge.stopSession();
-      } else if (!wsSend({ type: 'session.stop' })) {
-        showToast('Not connected \\u2014 could not end the session. Try again in a moment.', { error: true });
+        // The app answers { ok, reason, message } once it has tried to reach
+        // the server. Nothing flips until it says ok.
+        var pending = window.__copilotNativeBridge.stopSession();
+        if (!pending || typeof pending.then !== 'function') { enterEnding(); return; }
+        var answered = false;
+        var noAnswer = setTimeout(function() {
+          if (answered) return;
+          showToast('The app did not answer Stop \u2014 the meeting is still recording. Try again.', { error: true });
+        }, 8000);
+        pending.then(function(res) {
+          answered = true;
+          clearTimeout(noAnswer);
+          if (res && res.ok) { enterEnding(); return; }
+          if (res && res.reason === 'not-live') {
+            // The app holds no live meeting (it restarted, or lost track of it):
+            // tell the server directly rather than leave the meeting running.
+            if (wsSend({ type: 'session.stop' })) { enterEnding(); return; }
+          }
+          showToast((res && res.message) || 'Could not end the meeting \u2014 it is still recording. Try again in a moment.', { error: true });
+        });
         return;
       }
-      // Optimistic UI: the server may take several seconds to finish stopping
-      // (auto-summary, action completion, etc.) before it broadcasts
-      // session.state=archived. Flip to "ending" immediately so the user
-      // sees their click register; the authoritative broadcast will settle
-      // the final state when the server catches up.
-      sessionState = 'ending';
-      endingMessage = 'Wrapping up — generating summary & self-review…';
-      // Arm the safety watchdog immediately on the optimistic flip — even if the
-      // server's authoritative 'ending'/'archived' broadcasts never arrive, the
-      // UI will recover instead of stranding on "Ending…".
-      armEndingWatchdog();
-      // Freeze the displayed duration at end-press. The server may take
-      // many seconds (auto-summary + up to 60s worker grace period) before
-      // it broadcasts session.state=archived, and the meeting is logically
-      // over the moment the user clicks End.
-      stopTimer();
-      updateUI();
+      // Browser path: send FIRST — if the socket is down the stop never
+      // reached the server, so flipping to "ending" would be a lie.
+      if (!wsSend({ type: 'session.stop' })) {
+        showToast('Not connected \u2014 could not end the session. Try again in a moment.', { error: true });
+        return;
+      }
+      enterEnding();
     } else {
       // Start with values from form if available, otherwise empty
       startSession();

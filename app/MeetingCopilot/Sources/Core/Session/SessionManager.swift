@@ -41,6 +41,13 @@ func appLog(_ msg: String) {
 
 // MARK: - Session Manager
 
+/// What became of a request to end the meeting.
+enum StopOutcome {
+    case accepted     // session.stop reached the server (or is already on its way)
+    case notLive      // the app has no live meeting to stop
+    case unreachable  // the server couldn't be reached: still recording, retrying
+}
+
 /// Central manager for the meeting session lifecycle.
 /// Coordinates audio capture, WebSocket communication, and action management.
 @Observable
@@ -131,8 +138,13 @@ final class SessionManager {
     private var frameContinuation: AsyncStream<Data>.Continuation?
     private var frameSendTask: Task<Void, Never>?
     private var graceTimer: Timer?
+    private var stopInFlight = false
+    private var pendingStopRetry: Task<Void, Never>?
     private let maxTranscriptSegments = 50
-    private let endingGracePeriod: TimeInterval = 60.0
+    // Backstop for the ending state. The server holds the wrap-up (summary +
+    // self-review) up to its 240 s worker grace plus the final agenda pass, and
+    // broadcasts `archived` when done; this only covers that broadcast never coming.
+    private let endingGracePeriod: TimeInterval = 330.0
 
     // MARK: - Computed Properties
 
@@ -235,10 +247,10 @@ final class SessionManager {
         Task { await startSession() }
     }
 
-    /// Stop a session initiated from the embedded web UI.
-    func stopSessionFromWeb() {
-        guard state == .live || state == .degraded else { return }
-        stopSession()
+    /// Stop a session initiated from the embedded web UI. The page waits for the
+    /// outcome, so it only claims "Ending…" once the stop really went out.
+    func stopSessionFromWeb() async -> StopOutcome {
+        await requestStop(source: "dashboard")
     }
 
     private func startSession() async {
@@ -429,12 +441,30 @@ final class SessionManager {
         }
     }
 
+    /// Fire-and-forget stop for the menu bar, the hotkey and quit.
     func stopSession() {
-        guard state == .live || state == .degraded else { return }
+        Task { _ = await requestStop(source: "app") }
+    }
 
-        isRecording = false
-        sessionTimerTask?.cancel()
-        sessionTimerTask = nil
+    /// End the meeting. The stop only counts once `session.stop` is on the wire:
+    /// if the server can't be reached the meeting stays live (still recording,
+    /// and honest about it) and the stop retries until the link is back.
+    func requestStop(source: String) async -> StopOutcome {
+        appLog("[Session] stop requested (\(source)): state=\(state.rawValue) connected=\(_isConnectedCache) inFlight=\(stopInFlight)")
+        if state == .ending { return .accepted }
+        guard state == .live || state == .degraded else {
+            appLog("[Session] stop ignored: no live meeting in the app (state=\(state.rawValue))")
+            return .notLive
+        }
+        if stopInFlight { return .accepted }
+        stopInFlight = true
+        defer { stopInFlight = false }
+
+        // Nothing is drained or flipped until the server is reachable, so a
+        // failed attempt loses no audio and leaves the meeting as it was.
+        guard await webSocketClient.getIsConnected() else {
+            return failStop(source: source, reason: "not connected to the server")
+        }
 
         // CRITICAL ORDERING: state must stay .live until the VAD flush
         // chunks finish sending. The onChunk Task only forwards when
@@ -443,50 +473,86 @@ final class SessionManager {
         //   1. Collect flushed chunks (syncs on VAD emitter queues)
         //   2. Serially await webSocketClient.send for each
         //   3. Send audio.flush — tells server to await transcription.flushPending
-        //   4. Flip state to .ending
-        //   5. Send session.stop
-        //   6. Grace period → finalize
-        Task {
-            let flushedChunks = audioCaptureManager.flushPendingAudio()
-            for (wav, source, meta) in flushedChunks {
-                let base64 = wav.base64EncodedString()
-                let sourceStr = source == .mic ? "mic" : "meeting"
-                do {
-                    try await webSocketClient.send(.audioChunk(
-                        data: base64,
-                        source: sourceStr,
-                        chunkId: meta.chunkId,
-                        audioDurationSec: meta.audioDurationSec,
-                        captureStartedAt: meta.captureStartedAt,
-                        captureEndedAt: meta.captureEndedAt,
-                        sequence: meta.sequence,
-                        isContinuation: meta.isContinuation
-                    ))
-                } catch {
-                    appLog("[Session] Flush-chunk send failed: \(error) — continuing to stop")
-                }
+        //   4. Send session.stop — only now is the stop real
+        //   5. Flip state to .ending and stop capture
+        //   6. Wait for the server's archived broadcast → finalize
+        let flushedChunks = audioCaptureManager.flushPendingAudio()
+        for (wav, chunkSource, meta) in flushedChunks {
+            let base64 = wav.base64EncodedString()
+            let sourceStr = chunkSource == .mic ? "mic" : "meeting"
+            do {
+                try await webSocketClient.send(.audioChunk(
+                    data: base64,
+                    source: sourceStr,
+                    chunkId: meta.chunkId,
+                    audioDurationSec: meta.audioDurationSec,
+                    captureStartedAt: meta.captureStartedAt,
+                    captureEndedAt: meta.captureEndedAt,
+                    sequence: meta.sequence,
+                    isContinuation: meta.isContinuation
+                ))
+            } catch {
+                appLog("[Session] Flush-chunk send failed: \(error) — continuing to stop")
             }
+        }
 
-            try? await webSocketClient.send(.audioFlush)
+        do {
+            try await webSocketClient.send(.audioFlush)
+            try await webSocketClient.send(.sessionStop)
+        } catch {
+            return failStop(source: source, reason: "send failed: \(error)")
+        }
 
-            // Now it's safe to flip state; all trailing audio is in the server's queue.
-            await MainActor.run {
-                _ = self.handleStateTransition(to: .ending)
+        // The server has it (it is idempotent, so a retry that races this is
+        // harmless). Capture stops now, not when the wrap-up ends: the summary
+        // and self-review take minutes and nothing may record meanwhile.
+        pendingStopRetry?.cancel()
+        pendingStopRetry = nil
+        isRecording = false
+        sessionTimerTask?.cancel()
+        sessionTimerTask = nil
+        _ = handleStateTransition(to: .ending)
+        stopFrameSender()
+        await audioCaptureManager.stopCapture()
+        appLog("[Session] stop delivered; capture stopped, waiting for the server to archive")
+
+        // Backstop only: the server's `archived` broadcast is what finalizes.
+        graceTimer?.invalidate()
+        graceTimer = Timer.scheduledTimer(withTimeInterval: endingGracePeriod, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                appLog("[Session] ending backstop fired — finalizing without the server's archived")
+                self?.finalizeSession()
             }
+        }
+        return .accepted
+    }
 
-            try? await webSocketClient.send(.sessionStop)
+    private func failStop(source: String, reason: String) -> StopOutcome {
+        appLog("[Session] stop NOT delivered (\(source)): \(reason) — still recording")
+        if !source.hasPrefix("retry") {
+            surfaceError("Couldn't reach the server to end the meeting. Still recording — it will end by itself as soon as the connection is back.")
+        }
+        scheduleStopRetry()
+        return .unreachable
+    }
 
-            await MainActor.run {
-                self.graceTimer = Timer.scheduledTimer(withTimeInterval: self.endingGracePeriod, repeats: false) { [weak self] _ in
-                    Task { @MainActor in
-                        self?.finalizeSession()
-                    }
-                }
-                if self.runningActions.isEmpty {
-                    self.graceTimer?.invalidate()
-                    self.graceTimer = nil
-                    self.finalizeSession()
-                }
+    /// Keeps trying to deliver a stop that couldn't go out, every 3 s for a
+    /// minute, then says so. A manual Stop press goes through the same path.
+    private func scheduleStopRetry() {
+        guard pendingStopRetry == nil else { return }
+        pendingStopRetry = Task { @MainActor [weak self] in
+            var delivered = false
+            for attempt in 1...20 {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard let self, !Task.isCancelled else { return }
+                guard self.state == .live || self.state == .degraded else { delivered = true; break }
+                if await self.requestStop(source: "retry \(attempt)") == .accepted { delivered = true; break }
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.pendingStopRetry = nil
+            if !delivered {
+                appLog("[Session] stop retries exhausted — still live")
+                self.surfaceError("Still can't reach the server, so the meeting is still recording. Press Stop again once it's back.")
             }
         }
     }
@@ -518,6 +584,9 @@ final class SessionManager {
     }
 
     private func finalizeSession() {
+        guard state == .ending else { return }
+        graceTimer?.invalidate()
+        graceTimer = nil
         stopFrameSender()
         Task {
             await audioCaptureManager.stopCapture()
@@ -532,6 +601,8 @@ final class SessionManager {
     }
 
     private func resetSessionState() {
+        pendingStopRetry?.cancel()
+        pendingStopRetry = nil
         transcriptSegments = []
         actions = []
         totalWordCount = 0
@@ -835,17 +906,18 @@ final class SessionManager {
                 if newState.isTerminal {
                     actions[index].completedAt = Date()
 
-                    // If we're ending and no more running actions, finalize
-                    if state == .ending && runningActions.isEmpty {
-                        graceTimer?.invalidate()
-                        graceTimer = nil
-                        finalizeSession()
-                    }
+                    // Ending: the server's archived broadcast finalizes, not the
+                    // first action to finish (the self-review may still be running).
                 }
             }
 
         case .sessionState(let newState, _):
             let previousState = state
+            // The wrap-up is over (or, on a reconnect, long over): let go.
+            if state == .ending {
+                if newState == .archived || newState == .idle { finalizeSession() }
+                break
+            }
             // Ignore server's initial "idle" during startup — it arrives before our
             // session.start message reaches the server and would reset the state machine.
             if state == .priming && newState == .idle {

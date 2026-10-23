@@ -36,6 +36,8 @@ private struct WebViewWrapper: NSViewRepresentable {
             source: """
             (function() {
               var pendingPicks = {};
+              var pendingStops = {};
+              var stopCounter = 0;
               var pickCounter = 0;
               window.__copilotNativeBridge = {
                 startSession: function(payload) {
@@ -43,8 +45,14 @@ private struct WebViewWrapper: NSViewRepresentable {
                     Object.assign({ action: 'startSession' }, payload || {})
                   );
                 },
+                // Resolves { ok, reason, message } once the app has tried: ok means
+                // session.stop reached the server, so the page may say "Ending…".
                 stopSession: function() {
-                  window.webkit.messageHandlers.\(bridgeMessageName).postMessage({ action: 'stopSession' });
+                  var id = 'st_' + (++stopCounter) + '_' + Date.now();
+                  return new Promise(function(resolve) {
+                    pendingStops[id] = resolve;
+                    window.webkit.messageHandlers.\(bridgeMessageName).postMessage({ action: 'stopSession', requestId: id });
+                  });
                 },
                 startWindowDrag: function() {
                   window.webkit.messageHandlers.\(bridgeMessageName).postMessage({ action: 'startWindowDrag' });
@@ -102,6 +110,10 @@ private struct WebViewWrapper: NSViewRepresentable {
               window.__copilotCopyImageResult = function(id, ok) {
                 var resolver = pendingCopies[id];
                 if (resolver) { delete pendingCopies[id]; resolver(!!ok); }
+              };
+              window.__copilotStopResult = function(id, result) {
+                var resolver = pendingStops[id];
+                if (resolver) { delete pendingStops[id]; resolver(result || { ok: false, reason: 'unknown' }); }
               };
               window.__copilotPickPathResult = function(id, path) {
                 var resolver = pendingPicks[id];
@@ -249,6 +261,27 @@ private struct WebViewWrapper: NSViewRepresentable {
             }
         }
 
+        func deliverStopResult(requestId: String, outcome: StopOutcome) {
+            let result: [String: Any]
+            switch outcome {
+            case .accepted:
+                result = ["ok": true]
+            case .notLive:
+                result = ["ok": false, "reason": "not-live"]
+            case .unreachable:
+                result = ["ok": false, "reason": "unreachable",
+                          "message": "Couldn\u{2019}t reach the server to end the meeting. Still recording \u{2014} it will end by itself as soon as the connection is back."]
+            }
+            guard let idData = try? JSONSerialization.data(withJSONObject: [requestId]),
+                  let resData = try? JSONSerialization.data(withJSONObject: result),
+                  let idRaw = String(data: idData, encoding: .utf8),
+                  let resRaw = String(data: resData, encoding: .utf8) else { return }
+            let js = "window.__copilotStopResult && window.__copilotStopResult(\(idRaw.dropFirst().dropLast()), \(resRaw));"
+            DispatchQueue.main.async {
+                self.webView?.evaluateJavaScript(js, completionHandler: nil)
+            }
+        }
+
         func deliverCopyResult(requestId: String, ok: Bool) {
             let data = (try? JSONSerialization.data(withJSONObject: [requestId])) ?? Data()
             guard let raw = String(data: data, encoding: .utf8) else { return }
@@ -313,7 +346,9 @@ private struct WebViewWrapper: NSViewRepresentable {
                         consent: consent
                     )
                 case "stopSession":
-                    self.sessionManager.stopSessionFromWeb()
+                    let requestId = (body["requestId"] as? String) ?? ""
+                    let outcome = await self.sessionManager.stopSessionFromWeb()
+                    self.deliverStopResult(requestId: requestId, outcome: outcome)
                 case "startWindowDrag":
                     // One press, one action: a repeat request can't replay it.
                     guard let press = self.lastMouseDown, let window = self.webView?.window else { return }

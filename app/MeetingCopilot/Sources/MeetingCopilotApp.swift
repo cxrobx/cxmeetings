@@ -268,7 +268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // AppKit exits the process, which was leaving Node/Parakeet orphaned.
         Task { @MainActor in
             if sessionManager.state == .live || sessionManager.state == .degraded {
-                sessionManager.stopSession()
+                _ = await sessionManager.requestStop(source: "quit")
                 try? await Task.sleep(nanoseconds: 250_000_000)
             }
             await sessionManager.processSupervisor.stopAll()

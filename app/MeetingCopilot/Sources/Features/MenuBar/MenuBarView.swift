@@ -543,7 +543,7 @@ private struct RecordingCard: View {
 
     private var endingText: String {
         let running = sessionManager.runningActions.count
-        return running == 0 ? "Saving the session…" : "Finishing \(running) running action\(running == 1 ? "" : "s")…"
+        return running == 0 ? "Recording stopped. Writing the summary and self-review…" : "Recording stopped. Finishing \(running) running action\(running == 1 ? "" : "s")…"
     }
 
     /// Attendees, then time left: from the latest pulse (the server's own
