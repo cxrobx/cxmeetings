@@ -1,6 +1,6 @@
 ---
 name: meeting-copilot-prep
-description: Prepare a Meeting Copilot session ahead of time so the start form is already filled when Chris opens the app — title, a tracked agenda, attendees, private coach goals, projects, context files and a research brief — leaving only the one-click "Participants informed — Start Session". Use when Chris says "prep my meeting with X", "get the copilot ready for my 2pm", "prep tomorrow's call with Rory", "stage a session for…", or asks for Meeting Copilot to be waiting with context. Works from any repo, and with the app closed.
+description: "Pre-fill a Meeting Copilot session (title, agenda, attendees, coach goals, context, research brief) so only Start is left. Use for \"prep my meeting with X\", \"get the copilot ready for my 2pm\". Works from any repo, app closed."
 ---
 
 # Prep a Meeting Copilot session
