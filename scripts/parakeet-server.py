@@ -36,6 +36,11 @@ eval (`cd server && npm run eval:audio`) before shipping.
 
 Model is loaded once at startup; each request transcribes one chunk. The first
 inference pays a one-time Metal compile cost (the app's health polling covers it).
+
+MLX's buffer cache is capped (MLX_CACHE_BYTES) and cleared after every chunk.
+Left at its default (~52 GB on a 64 GB Mac) it keeps every freed buffer, and
+VAD chunks are a different length each time, so the sidecar held 5.1 GB after
+six days; voice-lab's copy of this decode path reached 25 GB the same way.
 """
 import argparse
 import asyncio
@@ -52,6 +57,7 @@ import uvicorn
 
 DEFAULT_MODEL = os.environ.get("PARAKEET_MODEL", "mlx-community/parakeet-tdt-0.6b-v3")
 MAX_WAV_BYTES = 20 * 1024 * 1024
+MLX_CACHE_BYTES = 256 * 1024 * 1024
 
 app = FastAPI()
 _model = None
@@ -111,6 +117,7 @@ def _transcribe_bytes(data: bytes) -> str:
         return ""
     mel = get_logmel(audio, model.preprocessor_config)
     result = model.generate(mel)[0]
+    mx.clear_cache()
     return (getattr(result, "text", "") or "").strip()
 
 
@@ -142,6 +149,7 @@ def main() -> None:
     global _model_name
     _model_name = args.model
 
+    mx.set_cache_limit(MLX_CACHE_BYTES)
     # Warm the model before serving so the first real chunk doesn't pay load cost.
     get_model()
     _log(f"listening on http://{args.host}:{args.port}/inference")
