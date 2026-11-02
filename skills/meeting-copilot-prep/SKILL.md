@@ -107,7 +107,9 @@ $CLI /path/to/prep.json
   update.
 - **`• notes`** say what was taken from the invite.
 
-**On the Mac mini:** the same commands work, and `~/.meeting-copilot/staged` syncs to the
+**On the Mac mini:** cxmail there has only some of the accounts and no Google calendars, so a
+meeting missing from `--invites` may still exist. Stage it by `title` + `startsAt`/`endsAt`, as
+in step 1. The other commands work the same, and `~/.meeting-copilot/staged` syncs to the
 laptop in about 7 seconds while it's awake, or soon after it wakes. Files in a repo move by
 commit, so a `⚠ … is not committed` warning means the laptop won't have that file. Commit it,
 then run `cx-reconcile --apply`. Vault files need neither.
