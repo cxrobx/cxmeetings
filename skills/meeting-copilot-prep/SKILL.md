@@ -107,6 +107,11 @@ $CLI /path/to/prep.json
   update.
 - **`• notes`** say what was taken from the invite.
 
+**On the Mac mini:** the same commands work, and `~/.meeting-copilot/staged` syncs to the
+laptop in about 7 seconds while it's awake, or soon after it wakes. Files in a repo move by
+commit, so a `⚠ … is not committed` warning means the laptop won't have that file. Commit it,
+then run `cx-reconcile --apply`. Vault files need neither.
+
 ## 5. Tell Chris
 
 Three or four lines: which meeting and when, how many agenda items, what the
@@ -123,6 +128,7 @@ consent, never yours.
 - The form fills itself from the soonest one while untouched: on open, on focus,
   and every 30 s. **Clear** on the banner empties the form and leaves the prep as
   a chip.
+- Paths under the home folder are stored as `~/…`, so a prep works on either Mac.
 - On Start the server moves the file into the session's folder as `prep.json`
   and hands the brief to the copilot as a pinned context doc.
 - Source: `server/src/prep/staged.ts` (format, checks), `prep/stage-cli.ts` (this

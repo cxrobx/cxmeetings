@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import {
   LIMITS,
   attachPrepToSession,
@@ -42,6 +42,42 @@ const opts = {
 function stage(overrides: Record<string, unknown> = {}) {
   return normalizeStagedInput({ ...INPUT, ...overrides }, opts);
 }
+
+describe('a prep read on another Mac', () => {
+  let dir: string;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'portable-prep-')); });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  const base = (): StagedPrep => ({
+    ...normalizeStagedInput(INPUT, { now: NOW, pathExists: () => true }).prep!,
+    contextPaths: [join(homedir(), 'clients/northwind/STATUS.md'), '/opt/shared/notes.md'],
+    tabs: [{ title: 'Snapshot', url: null, path: join(homedir(), 'evidence/one.png'), note: '' }],
+  });
+
+  it('stores paths under the home folder without naming it', () => {
+    saveStagedPrep(base(), dir);
+    const text = readFileSync(join(dir, readdirSync(dir)[0]), 'utf8');
+    expect(text).not.toContain(homedir());
+    expect(text).toContain('"~/clients/northwind/STATUS.md"');
+    expect(text).toContain('"/opt/shared/notes.md"');
+  });
+
+  it('reads them back under this Mac\'s home folder', () => {
+    saveStagedPrep(base(), dir);
+    const [prep] = listStagedPreps(dir, NOW).preps;
+    expect(prep.contextPaths).toEqual([join(homedir(), 'clients/northwind/STATUS.md'), '/opt/shared/notes.md']);
+    expect(prep.tabs[0].path).toBe(join(homedir(), 'evidence/one.png'));
+  });
+
+  it('keeps a snapshot reachable once the prep moves into its session', () => {
+    const prep = base();
+    saveStagedPrep(prep, dir);
+    const session = mkdtempSync(join(tmpdir(), 'portable-session-'));
+    attachPrepToSession({ prepId: prep.id }, session, dir);
+    expect(readSessionTabs(session)[0].path).toBe(join(homedir(), 'evidence/one.png'));
+    rmSync(session, { recursive: true, force: true });
+  });
+});
 
 describe('normalizeStagedInput', () => {
   it('normalizes a complete prep', () => {

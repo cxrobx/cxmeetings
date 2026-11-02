@@ -380,12 +380,28 @@ export function stagedPrepExpiry(prep: Pick<StagedPrep, 'createdAt' | 'startsAt'
   return Date.parse(prep.createdAt) + NO_TIMES_TTL_MS;
 }
 
+/**
+ * Paths under the home folder are stored as `~/…` and expanded on read, because
+ * a prep staged on one Mac can be read on another whose home folder differs.
+ */
+function portablePath(path: string, home: string = homedir()): string {
+  return path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
+}
+
+function portablePrep(prep: StagedPrep): StagedPrep {
+  return {
+    ...prep,
+    contextPaths: prep.contextPaths.map((p) => portablePath(p)),
+    tabs: prep.tabs.map((t) => ({ ...t, path: t.path && portablePath(t.path) })),
+  };
+}
+
 /** Atomic write: a reader never sees half a file. Replaces the same meeting's prep. */
 export function saveStagedPrep(prep: StagedPrep, dir: string = stagedDir()): string {
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `${prep.id}.json`);
   const tmp = `${file}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify(prep, null, 2) + '\n', { mode: 0o600 });
+  writeFileSync(tmp, JSON.stringify(portablePrep(prep), null, 2) + '\n', { mode: 0o600 });
   renameSync(tmp, file);
   return file;
 }
@@ -408,7 +424,10 @@ function parseStoredPrep(raw: unknown): { prep: StagedPrep | null; reason?: stri
     && typeof p.goals === 'string'
     && typeof p.brief === 'string';
   if (!ok) return { prep: null, reason: 'missing fields' };
-  return { prep: { ...(raw as StagedPrep), tabs: storedTabs(p.tabs) } };
+  const contextPaths = (p.contextPaths as unknown[])
+    .filter((c): c is string => typeof c === 'string')
+    .map((c) => expandHome(c, homedir()));
+  return { prep: { ...(raw as StagedPrep), contextPaths, tabs: storedTabs(p.tabs) } };
 }
 
 /** Tabs as stored, re-checked for shape (never for existence: that is at serve time). */
@@ -419,7 +438,8 @@ function storedTabs(value: unknown): StagedTab[] {
     if (!item || typeof item !== 'object') continue;
     const t = item as Record<string, unknown>;
     const url = typeof t.url === 'string' && /^https?:\/\//i.test(t.url) ? t.url : null;
-    const path = typeof t.path === 'string' && isAbsolute(t.path) && snapshotKind(t.path) ? t.path : null;
+    const full = typeof t.path === 'string' ? expandHome(t.path, homedir()) : '';
+    const path = isAbsolute(full) && snapshotKind(full) ? full : null;
     if (!url && !path) continue;
     out.push({
       title: typeof t.title === 'string' && t.title ? t.title : (url ?? path!),

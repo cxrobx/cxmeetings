@@ -13,7 +13,9 @@
 // opens. See prep/staged.ts for the file format and skills/meeting-copilot-prep for
 // the skill that writes the input.
 
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { readFileSync, statSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { scanProjects } from '../project/index.js';
 import {
   LIMITS,
@@ -133,6 +135,27 @@ function printPrep(prep: StagedPrep): void {
   line('offered', `until ${when(new Date(stagedPrepExpiry(prep)).toISOString())}`);
 }
 
+/**
+ * Repos travel between Macs by commit, so a prep staged on one Mac and opened on
+ * the other can't see a context file or snapshot that was never committed.
+ */
+function uncommittedWarnings(paths: string[]): string[] {
+  const warnings: string[] = [];
+  for (const path of paths) {
+    try {
+      const dir = statSync(path).isDirectory() ? path : dirname(path);
+      const status = execFileSync('git', ['-C', dir, 'status', '--porcelain', '--', path], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      if (status.trim()) warnings.push(`${path} is not committed, so another Mac won't have it. Commit it before the meeting.`);
+    } catch {
+      // Not in a repo: a synced folder like the vault, or nothing to check.
+    }
+  }
+  return warnings;
+}
+
 async function stage(file: string, checkOnly: boolean): Promise<number> {
   let input: unknown;
   try {
@@ -159,6 +182,7 @@ async function stage(file: string, checkOnly: boolean): Promise<number> {
   const { prep, errors, warnings } = normalizeStagedInput(input, {
     knownProjects: scanProjects().map((p) => p.name),
   });
+  if (prep) warnings.push(...uncommittedWarnings([...prep.contextPaths, ...prep.tabs.flatMap((t) => (t.path ? [t.path] : []))]));
   for (const n of notes) console.log(`• ${n}`);
   for (const w of warnings) console.log(`⚠ ${w}`);
   if (!prep) {
