@@ -425,6 +425,7 @@ async function main(): Promise<void> {
     title: manifest.meetingContext?.title ?? `Replay: ${basename(recordingDir)}`,
     agenda: effectiveAgenda,
     attendees: manifest.meetingContext?.participants,
+    rehearsal: true,
   }));
 
   // Wait for session to initialize — verify it went live

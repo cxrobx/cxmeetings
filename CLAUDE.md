@@ -118,6 +118,7 @@ open "/Applications/Meeting Copilot.app" # Launch packaged app
 3. **Approval before action** — suggestions require user approval before workers execute
 4. **16kHz mono PCM** — both audio sources must output this format
 5. **NEVER `toISOString()` for a filename date** — it renders UTC, so any meeting after ~20:00 ET is stamped with tomorrow. Vault notes use `<CATEGORY> <Who|Topic> <MM.DD.YY>.md` in **local** time, from the session's own `startedAt` (not "now"). Helpers: `server/src/workers/filename.ts`; convention: `~/Documents/CX/CLAUDE.md`; mirror: `~/Projects/cxnotes/services/summariser.js` (`buildObsidianFilename`) — category is content-earned or absent, never a default
+6. **Only the end-of-meeting summary becomes a vault note** (`server/src/workers/vault-note.ts`). It is skipped when CXNotes covers at least half the call, it never replaces a note it didn't write (frontmatter `copilot_session`), and a replay must send `rehearsal: true` on `session.start` so it never reaches the vault
 
 Full list in `.claude/rules/architecture.md`.
 

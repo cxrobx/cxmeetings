@@ -324,7 +324,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openSettings: { [weak self] in self?.showPanelAndRun("settings") },
             checkForUpdates: { [weak self] in self?.updates.checkForUpdates() },
             openNotesFolder: {
-                // Summaries are filed here when auto-save is on (workers/summary.ts).
+                // End-of-call notes are filed here (workers/vault-note.ts).
                 Self.openFolder("~/Documents/CX/Meetings", fallback: "~/Documents/CX")
             },
             quit: { NSApplication.shared.terminate(nil) }

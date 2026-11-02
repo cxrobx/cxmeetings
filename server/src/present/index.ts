@@ -10103,7 +10103,8 @@ export const PRESENT_HTML = `<!DOCTYPE html>
           '<label class="settings-check"><input type="checkbox" id="setCoach"' + (s.monitorDefaults && s.monitorDefaults.coach ? ' checked' : '') + '> Recovery coach (recommended)</label>' +
           '<label class="settings-check" style="margin-top:4px"><input type="checkbox" id="setFactcheck"' + (s.monitorDefaults && s.monitorDefaults.factcheck ? ' checked' : '') + '> Fact-check (extra cost while on)</label></div>' +
         '<div class="settings-field"><label>Summaries</label>' +
-          '<label class="settings-check"><input type="checkbox" id="setAutoWrite"' + (s.summaryAutoWrite ? ' checked' : '') + '> Auto-save summaries to ~/Documents/CX/Meetings</label></div>' +
+          '<label class="settings-check"><input type="checkbox" id="setAutoWrite"' + (s.summaryAutoWrite ? ' checked' : '') + '> Save a note to ~/Documents/CX/Meetings after a call</label>' +
+          '<div class="settings-hint">Skipped when CXNotes recorded the same call, because it files its own note. Never replaces an existing note.</div></div>' +
         '<div class="settings-field"><label>Appearance</label>' +
           '<label class="settings-check"><input type="checkbox" id="setVaultLook"' + (s.matchVaultAppearance ? ' checked' : '') + '> Match vault appearance (the Obsidian theme, via Onyx)</label>' +
           '<div class="settings-hint">Wears the palette Onyx derives from your vault\\u2019s theme. Off, or with Onyx not running and nothing cached, the dashboard uses its own light/dark themes.</div></div>' +

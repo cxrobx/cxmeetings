@@ -12,17 +12,20 @@ import { homedir } from 'node:os';
  *
  *   {
  *     "selfNames": ["alex", "alex doe"],
- *     "categoryByContent": [{ "code": "BD", "keywords": ["business development", "biz dev"] }]
+ *     "categoryByContent": [{ "code": "BD", "keywords": ["business development", "biz dev"] }],
+ *     "recorderDir": "/Users/alex/Documents/Recordings"
  *   }
  *
  * `categoryByContent` is matched whole-token over title + attendees, first hit
  * wins, so specific codes go first. It is a separate file, not a field of
  * settings.json, because a settings save rewrites that file from its known
- * fields only.
+ * fields only. `recorderDir` is the companion recorder's output folder when it
+ * isn't that app's default (./vault-note.ts).
  */
 export interface VaultProfile {
   selfNames: Set<string>;
   categoryByContent: Array<[string, string[]]>;
+  recorderDir?: string;
 }
 
 const BUILT_IN_SELF_NAMES = ['me', 'self'];
@@ -54,6 +57,7 @@ export function normaliseVaultProfile(raw: unknown): VaultProfile {
   return {
     selfNames: new Set([...BUILT_IN_SELF_NAMES, ...cleanList(src.selfNames)]),
     categoryByContent,
+    recorderDir: typeof src.recorderDir === 'string' && src.recorderDir.trim() ? src.recorderDir.trim() : undefined,
   };
 }
 

@@ -120,7 +120,7 @@ type InboundMessage =
       isContinuation?: boolean;
     }
   | { type: 'audio.flush' }
-  | { type: 'session.start'; title?: string; projectNames?: string[]; agenda?: string; attendees?: string; contextPaths?: string[]; contextDirPaths?: string[] }
+  | { type: 'session.start'; title?: string; projectNames?: string[]; agenda?: string; attendees?: string; contextPaths?: string[]; contextDirPaths?: string[]; rehearsal?: boolean }
   | { type: 'session.stop' }
   // Pause / Resume a live meeting (session/pause.ts). Any client may send them.
   | { type: 'session.pause' }
@@ -331,6 +331,9 @@ let lastSessionId: string | null = null;
 let rollingSummaryId: string | null = null;
 let rollingSummaryTimer: ReturnType<typeof setInterval> | null = null;
 let rollingSummaryWordCount = 0;
+// True while a replay tool, not a real meeting, is driving the session.
+let sessionIsRehearsal = false;
+
 // The refresh in flight, if any. session.stop aborts it: a refresh that lands
 // after stop has cleared rollingSummaryId would create a second rolling card
 // next to the end-of-meeting summary, and rewrite the vault note from an older
@@ -1014,6 +1017,7 @@ async function handleInboundMessage(message: InboundMessage, reply?: ReplyFn): P
       if (forgotten) debugLog(`[Session] Dropped ${forgotten} finished action(s) from the previous meeting`);
 
       // Create new session
+      sessionIsRehearsal = message.rehearsal === true;
       sessionStore = new SessionStore();
       sessionStore.createSession(message.title ?? '', message.projectNames ?? [], message.agenda, message.attendees);
 
@@ -1364,6 +1368,10 @@ async function handleInboundMessage(message: InboundMessage, reply?: ReplyFn): P
                 // filename falls back to "now" and drops the counterpart.
                 startedAt: session?.startedAt,
                 attendees: session?.attendees,
+                // A replayed recording is not a meeting: it must never reach the vault.
+                vaultNote: !sessionIsRehearsal,
+                sessionId: sessionStore.id,
+                endedAt: Date.now(),
               },
             }, { force: true, system: true });
             if (summaryAction) {

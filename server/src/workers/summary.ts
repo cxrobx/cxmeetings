@@ -1,9 +1,7 @@
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
 import { claudeSuggest } from '../claude-cli.js';
 import { getSettings } from '../settings.js';
-import { buildMeetingFilename, formatMeetingDate } from './filename.js';
+import { formatMeetingDate } from './filename.js';
+import { fileMeetingNote } from './vault-note.js';
 import type { Worker, WorkerCapabilities, WorkerResult } from './types.js';
 
 export class SummaryWorker implements Worker {
@@ -11,7 +9,7 @@ export class SummaryWorker implements Worker {
   public readonly capabilities: WorkerCapabilities = {
     network: 'anthropic-only',
     filesystem: {
-      read: [],
+      read: ['~/Documents/CX/Meetings/**', '~/Documents/CXNotesRecordings/recordings/**'],
       write: ['~/Documents/CX/Meetings/**'],
     },
     subprocess: false,
@@ -95,21 +93,23 @@ Be concise but thorough. Focus on substance, not filler.`;
       // renders UTC and rolls an evening ET meeting onto the next day.
       const dateStr = formatMeetingDate(startedAt);
 
-      // Auto-write to ~/Documents/CX/Meetings only when enabled in settings —
-      // the artifact below is returned (and persisted with the session) either way.
+      // Only the end-of-meeting summary may become a vault note, and only with
+      // the setting on. The artifact below is returned (and persisted with the
+      // session) either way. Rolling refreshes never pass `vaultNote`.
       let filePath: string | null = null;
-      if (getSettings().summaryAutoWrite) {
-        // `<CATEGORY> <Who|Topic> <MM.DD.YY>.md` — see ~/Documents/CX/CLAUDE.md.
-        // Stays in `Meetings/`: routing the note to a client folder would mean
-        // widening this worker's write sandbox to the whole vault, and
-        // notes4chris already owns filing.
-        const filename = buildMeetingFilename({ title, attendees, startedAt });
-
-        const meetingsDir = join(homedir(), 'Documents', 'CX', 'Meetings');
-        await mkdir(meetingsDir, { recursive: true });
-
-        filePath = join(meetingsDir, filename);
-        await writeFile(filePath, markdown, 'utf-8');
+      let skipped = 'auto-save to Documents is off';
+      if (params.vaultNote === true && getSettings().summaryAutoWrite) {
+        const outcome = await fileMeetingNote({
+          sessionId: params.sessionId as string,
+          title,
+          attendees,
+          startedAt: new Date(startedAt ?? Date.now()).getTime(),
+          endedAt: params.endedAt as number,
+          transcript,
+          markdown,
+        });
+        if ('filePath' in outcome) filePath = outcome.filePath;
+        else skipped = outcome.skipped;
       }
 
       return {
@@ -117,7 +117,7 @@ Be concise but thorough. Focus on substance, not filler.`;
         data: { markdown, filePath },
         summary: filePath
           ? `Meeting notes saved to ${filePath}`
-          : 'Meeting notes generated (auto-save to Documents is off)',
+          : `Meeting notes generated, no vault note (${skipped})`,
         artifacts: [
           {
             type: 'markdown',
