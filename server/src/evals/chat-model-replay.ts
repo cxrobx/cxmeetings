@@ -17,6 +17,8 @@
  *   npm run eval:chat                                    # luna vs gpt-6.2-sol
  *   npm run eval:chat -- --a gpt-6-luna --b gpt-6.2-astra
  *   npm run eval:chat -- --limit 3 --out <dir>
+ *   npm run eval:chat -- --a gpt-6.2-sol --b gpt-6.2-sol --tier-a default --tier-b fast --no-judge --rounds 3
+ *     (a latency A/B of OpenAI's fast tier: same model, no judge, rounds interleaved)
  *
  * Metered: both arms bill OpenAI (the session budget guard's prices). The
  * judge runs on the subscription CLI.
@@ -48,6 +50,10 @@ function arg(name: string, fallback: string): string {
 }
 const A = arg('a', 'gpt-6-luna');
 const B = arg('b', 'gpt-6.2-sol');
+const TIER_A = arg('tier-a', 'default');
+const TIER_B = arg('tier-b', 'default');
+const NO_JUDGE = process.argv.includes('--no-judge');
+const ROUNDS = Math.max(1, Number(arg('rounds', '1')) || 1);
 const LIMIT = Number(arg('limit', '0')) || Infinity;
 const OUT = arg('out', join(process.env.TMPDIR ?? '/tmp', `chat-replay-${Date.now()}`));
 
@@ -115,7 +121,7 @@ function collectCases(): Case[] {
   return cases.slice(0, LIMIT);
 }
 
-async function answer(c: Case, model: string): Promise<Answer> {
+async function answer(c: Case, model: string, tier: string): Promise<Answer> {
   resetLlmBudget();
   const started = Date.now();
   let first = 0;
@@ -125,7 +131,8 @@ async function answer(c: Case, model: string): Promise<Answer> {
       history: c.history,
       userContent: c.user,
       model,
-      label: `eval-chat:${model}`,
+      label: `eval-chat:${model}:${tier}`,
+      serviceTier: tier,
       functions: [DRAFT_TASK_TOOL],
       onDelta: () => {
         if (!first) first = Date.now();
@@ -177,27 +184,46 @@ async function main() {
   mkdirSync(OUT, { recursive: true });
   console.log(`${cases.length} chat questions · A=${A} B=${B} · judge=${JUDGE_MODEL} · out=${OUT}`);
   const rows: Array<Record<string, any>> = [];
-  for (const [i, c] of cases.entries()) {
-    const [a, b] = await Promise.all([answer(c, A), answer(c, B)]);
-    // Two judgments, both orders. A model wins only if both pick it.
-    const [v1, v2] = await Promise.all([judge(c, a, b), judge(c, b, a)]);
-    const pick1 = v1 ? (v1.winner === 'A' ? A : v1.winner === 'B' ? B : 'tie') : 'error';
-    const pick2 = v2 ? (v2.winner === 'A' ? B : v2.winner === 'B' ? A : 'tie') : 'error';
-    const winner = pick1 === pick2 ? pick1 : 'tie';
-    const scoreA = v1 && v2 ? (v1.a_score + v2.b_score) / 2 : null;
-    const scoreB = v1 && v2 ? (v1.b_score + v2.a_score) / 2 : null;
-    rows.push({ ...c, system: undefined, a, b, v1, v2, winner, scoreA, scoreB });
-    console.log(`[${i + 1}/${cases.length}] ${winner.padEnd(14)} ${A} ${scoreA ?? '-'} vs ${B} ${scoreB ?? '-'} · $${a.dollars.toFixed(4)} vs $${b.dollars.toFixed(4)} · ${a.totalMs}ms vs ${b.totalMs}ms · ${c.question.slice(0, 60).replace(/\s+/g, ' ')}`);
+  const LA = `${A}${TIER_A !== 'default' ? `:${TIER_A}` : ''}`;
+  const LB = `${B}${TIER_B !== 'default' ? `:${TIER_B}` : ''}`;
+  for (let round = 1; round <= ROUNDS; round++) {
+    for (const [i, c] of cases.entries()) {
+      // One arm at a time: the budget counter is process-wide, so two answers
+      // in flight would read each other's dollars. Which goes first alternates,
+      // so neither always meets a warm or cold moment.
+      const flip = (i + round) % 2 === 1;
+      let a: Answer, b: Answer;
+      if (flip) { b = await answer(c, B, TIER_B); a = await answer(c, A, TIER_A); }
+      else { a = await answer(c, A, TIER_A); b = await answer(c, B, TIER_B); }
+      let v1: Verdict | null = null, v2: Verdict | null = null, winner = 'unjudged', scoreA: number | null = null, scoreB: number | null = null;
+      if (!NO_JUDGE) {
+        // Two judgments, both orders. A model wins only if both pick it.
+        [v1, v2] = await Promise.all([judge(c, a, b), judge(c, b, a)]);
+        const pick1 = v1 ? (v1.winner === 'A' ? LA : v1.winner === 'B' ? LB : 'tie') : 'error';
+        const pick2 = v2 ? (v2.winner === 'A' ? LB : v2.winner === 'B' ? LA : 'tie') : 'error';
+        winner = pick1 === pick2 ? pick1 : 'tie';
+        scoreA = v1 && v2 ? (v1.a_score + v2.b_score) / 2 : null;
+        scoreB = v1 && v2 ? (v1.b_score + v2.a_score) / 2 : null;
+      }
+      rows.push({ ...c, system: undefined, round, a, b, v1, v2, winner, scoreA, scoreB });
+      console.log(`[r${round} ${i + 1}/${cases.length}] ${winner.padEnd(14)} ${LA} ${scoreA ?? '-'} vs ${LB} ${scoreB ?? '-'} · $${a.dollars.toFixed(4)} vs $${b.dollars.toFixed(4)} · ${a.totalMs}ms vs ${b.totalMs}ms · ${c.question.slice(0, 50).replace(/\s+/g, ' ')}`);
+    }
   }
   writeFileSync(join(OUT, 'results.json'), JSON.stringify(rows, null, 2));
 
   const sum = (f: (r: (typeof rows)[number]) => number) => rows.reduce((n, r) => n + f(r), 0);
   const med = (xs: number[]) => { const s = [...xs].sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)]! : 0; };
   const wins = (m: string) => rows.filter((r) => r.winner === m).length;
+  const pct = (xs: number[], p: number) => { const s = [...xs].sort((x, y) => x - y); return s.length ? s[Math.min(s.length - 1, Math.floor(s.length * p))]! : 0; };
   const scored = rows.filter((r) => r.scoreA != null);
   console.log('\n── Summary ──');
-  console.log(`wins: ${A} ${wins(A)} · ${B} ${wins(B)} · tie ${rows.length - wins(A) - wins(B)}`);
-  console.log(`mean score: ${A} ${(sum((r) => r.scoreA ?? 0) / (scored.length || 1)).toFixed(2)} · ${B} ${(sum((r) => r.scoreB ?? 0) / (scored.length || 1)).toFixed(2)}`);
+  if (!NO_JUDGE) console.log(`wins: ${LA} ${wins(LA)} · ${LB} ${wins(LB)} · tie ${rows.length - wins(LA) - wins(LB)}`);
+  for (const [label, key] of [[LA, 'a'], [LB, 'b']] as const) {
+    const total = rows.map((r) => r[key].totalMs as number);
+    const first = rows.flatMap((r) => (r[key].ttftMs ? [r[key].ttftMs as number] : []));
+    console.log(`${label}: total p50 ${pct(total, 0.5)} p90 ${pct(total, 0.9)} max ${Math.max(...total)} · first word p50 ${pct(first, 0.5)} p90 ${pct(first, 0.9)} max ${Math.max(...first)} · per round p50 ${Array.from({ length: ROUNDS }, (_, k) => pct(rows.filter((r) => r.round === k + 1).map((r) => r[key].totalMs as number), 0.5)).join('/')}`);
+  }
+  if (!NO_JUDGE) console.log(`mean score: ${A} ${(sum((r) => r.scoreA ?? 0) / (scored.length || 1)).toFixed(2)} · ${B} ${(sum((r) => r.scoreB ?? 0) / (scored.length || 1)).toFixed(2)}`);
   console.log(`cost per turn: ${A} $${(sum((r) => r.a.dollars) / rows.length).toFixed(4)} · ${B} $${(sum((r) => r.b.dollars) / rows.length).toFixed(4)}`);
   console.log(`median total ms: ${A} ${med(rows.map((r) => r.a.totalMs))} · ${B} ${med(rows.map((r) => r.b.totalMs))}`);
   console.log(`median first-word ms: ${A} ${med(rows.flatMap((r) => (r.a.ttftMs ? [r.a.ttftMs] : [])))} · ${B} ${med(rows.flatMap((r) => (r.b.ttftMs ? [r.b.ttftMs] : [])))}`);
