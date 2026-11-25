@@ -1,6 +1,6 @@
 # Distribution and updates
 
-Meeting Copilot ships as a signed, notarized, self-contained app that another person can download and run, and it updates itself with [Sparkle](https://sparkle-project.org) 2. Built for T230 (2026-10-02). Nothing is published until Chris runs `release.sh --publish`.
+CXMeetings ships as a signed, notarized, self-contained app that another person can download and run, and it updates itself with [Sparkle](https://sparkle-project.org) 2. Built for T230 (2026-10-02). Nothing is published until Chris runs `release.sh --publish`.
 
 ## What "self-contained" means here
 
@@ -35,7 +35,7 @@ What a stranger's copy does **not** get: the `claude` CLI features (pulse, sugge
 
 ## Updates
 
-- **The feed** is `https://github.com/cxrobx/meeting-copilot/releases/latest/download/appcast.xml` (`scripts/sparkle.conf`). Every release carries its own `appcast.xml`, and GitHub serves the newest one. The app checks daily and from the menu bar's **Updates** button. It asks before installing (`SUAutomaticallyUpdate` off) and verifies the archive's EdDSA signature before extracting it. The feed is arm64 only (`sparkle:hardwareRequirements`).
+- **The feed** is `https://github.com/cxrobx/cxmeetings/releases/latest/download/appcast.xml` (`scripts/sparkle.conf`). Every release carries its own `appcast.xml`, and GitHub serves the newest one. The app checks daily and from the menu bar's **Updates** button. It asks before installing (`SUAutomaticallyUpdate` off) and verifies the archive's EdDSA signature before extracting it. The feed is arm64 only (`sparkle:hardwareRequirements`).
 - **Never during a meeting** (`UpdateController`, `UpdatePolicy`; a meeting is `SessionState.isMeeting`, priming through ending):
   - A background check that comes due in a meeting is held, since its window would land on a shared screen. It runs once the meeting ends. A check you ask for always runs.
   - Installing quits the app, and quitting ends the session, so an install accepted mid-meeting is postponed through `SPUUpdaterDelegate`. After the meeting it also waits, up to 15 min, for the server's close-out work to finish (`GET /debug` workers: queued, approved, running), so the summary and review aren't killed by the relaunch.

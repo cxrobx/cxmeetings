@@ -1,4 +1,4 @@
-# Meeting Copilot
+# CXMeetings (formerly Meeting Copilot)
 
 AI agent that activates during meetings to generate live research, mockups, and analysis with approval flows.
 

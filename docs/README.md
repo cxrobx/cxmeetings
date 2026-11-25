@@ -1,4 +1,4 @@
-# Meeting Copilot Documentation
+# CXMeetings Documentation
 
 ## Quick Links
 

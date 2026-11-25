@@ -1,11 +1,11 @@
-# Meeting Copilot
+# CXMeetings
 
 A macOS menu-bar copilot that listens to your meetings and works alongside you:
 a live transcript, a coach, a running read on whether the meeting is on track,
 and research, summaries, analysis and mockups that it suggests and runs **only
 after you approve them**.
 
-![Meeting Copilot live dashboard with transcript, approval-gated research suggestions, running analysis, summary, and agenda](docs/media/meeting-copilot-dashboard.png)
+![CXMeetings live dashboard with transcript, approval-gated research suggestions, running analysis, summary, and agenda](docs/media/meeting-copilot-dashboard.png)
 
 <sub>Dashboard UI preview with illustrative meeting data.</sub>
 
@@ -55,7 +55,7 @@ record.
 ## Install
 
 From the first published release on, download the DMG from
-[Releases](https://github.com/cxrobx/meeting-copilot/releases) and drag the app to Applications. It needs macOS 14+ on Apple Silicon, nothing else: Node and `uv` ship
+[Releases](https://github.com/cxrobx/cxmeetings/releases) and drag the app to Applications. It needs macOS 14+ on Apple Silicon, nothing else: Node and `uv` ship
 inside it. The first start downloads the speech model (Parakeet, about 2.5 GB) and its Python
 packages; the menu bar shows the progress. It keeps itself up to date (Sparkle), and never
 installs an update during a meeting. How releases are made: [`docs/updates.md`](docs/updates.md).
