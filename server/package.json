@@ -17,6 +17,7 @@
     "eval:moment-gate": "tsx src/evals/moment-gate-compare.ts",
     "eval:agenda": "tsx src/evals/agenda-reconcile-replay.ts",
     "eval:research": "tsx src/evals/fast-research-benchmark.ts",
+    "eval:chat": "tsx src/evals/chat-model-replay.ts",
     "postinstall": "npm rebuild better-sqlite3"
   },
   "dependencies": {
