@@ -86,7 +86,8 @@ cd server && npm start        # Run compiled dist/index.js
 | `COPILOT_PULSE_MODEL` | No | `claude-opus-5-5` | Model for the pulse, on the subscription CLI |
 | `COPILOT_RESEARCH_DEEP_FOLLOWUP` | No | on | `0` turns off the deep follow-up on research requests (fast answer first, Deep appends what it adds) |
 | `COPILOT_DEEP_RESEARCH_MODEL` | No | `claude-opus-5-5` | Deep research model, on the subscription CLI |
-| `COPILOT_CHAT_MODEL` | No | `gpt-6-luna` | Meeting chat model (metered, web search); the subscription CLI (`COPILOT_WORKER_MODEL`) answers when the API is off or fails before its first word |
+| `COPILOT_CHAT_MODEL` | No | `gpt-6.2-sol` | Meeting chat model (metered, web search); the subscription CLI (`COPILOT_WORKER_MODEL`) answers when the API is off or fails before its first word |
+| `COPILOT_CHAT_SERVICE_TIER` | No | `fast` | The chat's own OpenAI service tier (`fast` bills 2x, about $0.03 a Sol turn); `default` turns it off. Other roles follow `COPILOT_OPENAI_SERVICE_TIER` |
 | `COPILOT_RESEARCH_EFFORT` | No | `low` | Fast research reasoning effort; `medium` measured no better (`npm run eval:research`) |
 | `COPILOT_MAX_LLM_DOLLARS_PER_SESSION` | No | 10 | The only lifetime stop for a session's metered AI |
 | `COPILOT_MAX_LLM_REQUESTS_PER_MINUTE` | No | 240 | Runaway-loop pause (one-minute window), never a lockout |

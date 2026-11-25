@@ -513,7 +513,7 @@ export function readStoredMeeting(dbPath: string): StoredMeeting {
 }
 
 /**
- * gpt-6-luna with web search (metered, like fast research), and the
+ * gpt-6.2-sol on the fast tier with web search (metered, like fast research), and the
  * subscription CLI when the API is off, or fails before its first word (the
  * budget ceiling, a network error). A failure mid-answer is reported, not
  * retried: half an answer followed by a different whole one reads worse.
@@ -532,6 +532,7 @@ export function defaultChatAnswerer(log: (message: string) => void = () => {}): 
           history: req.history,
           userContent: req.user,
           model: MODEL_CONFIG.chat,
+          serviceTier: MODEL_CONFIG.chatServiceTier,
           signal: req.signal,
           onDelta,
           label: req.label,

@@ -4,6 +4,10 @@ All notable changes to Meeting Copilot will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **The meeting chat answers on gpt-6.2-sol in fast mode** instead of gpt-6-luna. `npm run eval:chat` (new) replays every real chat question blind, Opus judging each pair in both orders: Sol won 7, Luna 1, tie 2. About $0.03 a turn on the fast tier (2x Sol's $0.017), against $0.0008 on Luna. Fast mode is the chat's own (`COPILOT_CHAT_SERVICE_TIER`, default `fast`; `default` turns it off), so the other OpenAI roles stay on the standard tier. Roll back with `COPILOT_CHAT_MODEL=gpt-6-luna`. The cost guard now prices GPT-6.2 Sol and Astra.
+
 ### Fixed
 
 - A live dashboard that reconnected mid-meeting showed every earlier meeting's cards since the server started: the action registry outlived meetings. A new meeting now forgets the finished ones (`WorkerRegistry.forgetFinished`); anything still waiting or running is kept.

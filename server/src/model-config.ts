@@ -23,7 +23,14 @@ export const MODEL_CONFIG = {
   // Meeting chat (chat/service.ts): the drawer's back-and-forth, with the
   // meeting as context and web search. Metered, like fast research; the
   // subscription CLI (the worker model) answers when the API is off or fails.
-  chat: process.env.COPILOT_CHAT_MODEL || 'gpt-6-luna',
+  // gpt-6.2-sol since 2026-11-25, Chris's call after `npm run eval:chat`:
+  // a blind replay of the 10 real chat questions had Sol win 7, Luna 1, tie 2
+  // ($0.017 vs $0.0008 a turn). It runs on the fast tier (chatServiceTier).
+  chat: process.env.COPILOT_CHAT_MODEL || 'gpt-6.2-sol',
+  // Service tier for the chat alone: 'fast' bills 2x (about $0.03 a turn on
+  // Sol) for lower latency. 'default' turns it off. Other roles follow
+  // COPILOT_OPENAI_SERVICE_TIER.
+  chatServiceTier: process.env.COPILOT_CHAT_SERVICE_TIER || 'fast',
   haiku: process.env.COPILOT_HAIKU_MODEL || 'claude-haiku-5-5',
   suggestion: process.env.COPILOT_SUGGEST_MODEL || process.env.COPILOT_SUGGESTION_MODEL || 'claude-sonnet-5-5',
   worker: process.env.COPILOT_WORKER_MODEL || 'claude-sonnet-5-5',

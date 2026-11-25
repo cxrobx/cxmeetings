@@ -38,19 +38,27 @@ function serviceTier(): string | undefined {
 
 // Priority bills at 2x (the Sol rate above; not re-checked for Luna). Applied
 // to the budget so the ceiling stays pessimistic when the tier is on.
-function tierMultiplier(): number {
-  return serviceTier() ? 2 : 1;
+function tierMultiplier(tier: string | undefined = serviceTier()): number {
+  return tier ? 2 : 1;
 }
 
-export function tokenPrices(model: string): { input: number; output: number } {
-  const m = tierMultiplier();
+/** The tier a call runs on: its own when it names one ('default' = none), else the global one. */
+function effectiveTier(own: string | undefined): string | undefined {
+  if (own === undefined) return serviceTier();
+  const t = own.trim();
+  return t && t !== 'default' ? t : undefined;
+}
+
+export function tokenPrices(model: string, tier: string | undefined = serviceTier()): { input: number; output: number } {
+  const m = tierMultiplier(tier);
   const base = baseTokenPrices(model);
   return { input: base.input * m, output: base.output * m };
 }
 
 function baseTokenPrices(model: string): { input: number; output: number } {
   if (model.includes('gpt-6-luna')) return { input: 0.1, output: 0.5 };
-  if (model.includes('gpt-6-sol')) return { input: 2, output: 10 };
+  if (model.includes('gpt-6-sol') || model.includes('gpt-6.2-sol')) return { input: 2, output: 10 };
+  if (model.includes('gpt-6.2-astra')) return { input: 8, output: 40 };
   if (model.includes('gpt-5.6-luna')) return { input: 0.2, output: 1.2 };
   if (model.includes('gpt-5.6-terra')) return { input: 2, output: 12 };
   if (model.includes('gpt-5.6-sol') || model === 'gpt-5.6') return { input: 5, output: 30 };
@@ -256,11 +264,14 @@ export async function openaiFastResearchStream(params: {
    * something the caller does after the answer (the chat's task drafts).
    */
   functions?: FunctionTool[];
+  /** This call's service tier ('fast' bills 2x); 'default' = none. Omitted = COPILOT_OPENAI_SERVICE_TIER. */
+  serviceTier?: string;
 }): Promise<FastResearchResult> {
   const client = getClient();
   beginLlmRequest();
   const tag = params.label ?? 'fast-research';
   const model = params.model ?? FAST_RESEARCH_MODEL;
+  const tier = effectiveTier(params.serviceTier);
   const started = Date.now();
   let firstTokenAt = 0;
 
@@ -284,7 +295,7 @@ export async function openaiFastResearchStream(params: {
       ],
       stream: true,
       reasoning: { effort: fastResearchEffort() },
-      ...(serviceTier() ? { service_tier: serviceTier() as any } : {}),
+      ...(tier ? { service_tier: tier as any } : {}),
     },
     { signal: params.signal, maxRetries: 0 },
   );
@@ -294,6 +305,7 @@ export async function openaiFastResearchStream(params: {
   let accumulated = '';
   let usage: OpenAI.Responses.ResponseUsage | undefined;
   let searches = 0;
+  let billedTier: string | undefined;
   const calls: FunctionCall[] = [];
 
   for await (const event of stream) {
@@ -332,6 +344,7 @@ export async function openaiFastResearchStream(params: {
       }
     } else if (event.type === 'response.completed') {
       usage = event.response.usage;
+      billedTier = (event.response as { service_tier?: string | null }).service_tier ?? undefined;
       searches = event.response.output.filter((o) => o.type === 'web_search_call').length;
     }
   }
@@ -341,7 +354,7 @@ export async function openaiFastResearchStream(params: {
   // It now runs for every approved research suggestion, so it has to count.
   // Measured: ~4.5k input tokens of tool overhead even with no search, up to
   // ~17k with two searches — and each search is billed per call on top.
-  const prices = tokenPrices(model);
+  const prices = tokenPrices(model, tier);
   if (!usage) {
     const inputChars = params.systemPrompt.length + params.userContent.length
       + (params.history ?? []).reduce((n, m) => n + m.content.length, 0);
@@ -357,6 +370,6 @@ export async function openaiFastResearchStream(params: {
 
   const elapsed = Date.now() - started;
   const ttft = firstTokenAt > 0 ? firstTokenAt - started : -1;
-  log('api/openai', `${tag} model=${model} ttftMs=${ttft} totalMs=${elapsed} sources=${sources.length} chars=${accumulated.length} in=${usage?.input_tokens ?? 0} out=${usage?.output_tokens ?? 0} searches=${searches}${calls.length ? ` calls=${calls.map((c) => c.name).join(',')}` : ''}`);
+  log('api/openai', `${tag} model=${model} ttftMs=${ttft} totalMs=${elapsed} sources=${sources.length} chars=${accumulated.length} in=${usage?.input_tokens ?? 0} out=${usage?.output_tokens ?? 0} searches=${searches}${billedTier ? ` tier=${billedTier}` : ''}${calls.length ? ` calls=${calls.map((c) => c.name).join(',')}` : ''}`);
   return { text: accumulated, sources, calls };
 }
