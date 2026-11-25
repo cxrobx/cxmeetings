@@ -1,6 +1,6 @@
 # Known Gotchas
 
-Organized by category. 35 items + recovery playbook, condensed format. Original numbering preserved (gaps intentional).
+Organized by category. 36 items + recovery playbook, condensed format. Original numbering preserved (gaps intentional).
 
 ## Index
 
@@ -41,6 +41,7 @@ Organized by category. 35 items + recovery playbook, condensed format. Original 
 | 33 | better-sqlite3 below 13 aborts Node 24.19+ when GC frees a statement — the server dies silently | Deployment |
 | 34 | Releasing an AVAudioEngine can deadlock inside Core Audio — never touch the mic engine on the main thread | Environment |
 | 35 | A pinned mic that fails in a call loops restarts; an unbounded Core Audio start leaves Start stuck in priming | Environment |
+| 36 | `ship.sh` fails `MicEngineQueueTests` when the Mac's coreaudiod is wedged; the e2e gate needs Playwright's WebKit in the cache | Deployment |
 | — | **Recovery playbook** (system-wide SCK silence, server crash loops, zombie processes) | — |
 
 Standard categories: Environment, Database, Backend, Frontend, Security, Deployment, External APIs
@@ -248,6 +249,13 @@ this default.
 **Solution** (applied 2026-10-07): `openMicForStart` retries a plain failure twice (0.5 s, 1 s); `micFallbackForSession` keeps restarts on the system default once the pinned mic has failed in that session (cleared by `stopCapture`); `boundedStart` caps the tap and ScreenCaptureKit starts at `meetingStartTimeoutSec` (10 s), so a stuck tap falls back to ScreenCaptureKit, a stuck ScreenCaptureKit fails the Start with `meetingAudioStuck` and rolls back to idle, and a start that answers late is stopped. A Start click during priming now says "Still starting audio".
 **Check**: `Tests/MicEngineQueueTests.swift` (`testAFallbackToTheDefaultSticksForTheSession`, `testTheFirstOpenRetriesAPlainFailure`, `testAMeetingAudioStartThatNeverAnswersTimesOutAndIsUndoneLate`).
 **Pattern**: `app/MeetingCopilot/Sources/Core/Audio/AudioCaptureManager.swift` (`boundedStart`, `openMicForStart`, `micFallbackForSession`), `Session/SessionManager.swift` (`startSessionFromWeb`).
+
+### 36. `ship.sh` Fails `MicEngineQueueTests` When coreaudiod Is Wedged; the e2e Gate Needs Playwright's WebKit
+**Symptom**: Step 1 of `ship.sh` fails `testAFallbackToTheDefaultSticksForTheSession`: `Asynchronous wait failed … "opened"`, then `XCTAssertEqual failed: ("1") is not equal to ("2")`, then `Fatal error: Index out of range`, and the test process dies. It fails every time, including run on its own. The code had not changed in seven weeks. Seen 2026-11-25 on the laptop, 4 days up, with `coreaudiod` at 44% CPU while Meeting Copilot was not running.
+**Cause**: the test's second `openMic` tears down the first engine on `micQueue`, and that release never returned inside Core Audio (the class in #34, reached here by a sick system daemon rather than by the app). The factory therefore ran once, not twice. Building an engine was fine: `testTheEngineIsBuiltOffTheMainThread` passed the whole time. The installed app is exposed to the same hang, so a meeting on that Mac could freeze its mic.
+**Solution**: restart coreaudiod, then ship. One thing went wrong: `sudo -n /usr/bin/pkill -x coreaudiod` over SSH (passwordless on the laptop) made the tests pass over SSH, but they still failed inside the Aqua ship job until Chris ran `sudo killall coreaudiod` at the laptop. Why is not understood. If the over-SSH restart doesn't clear it, ask him to run it there. Check first that no call is live (`pgrep -x CptHost` for Zoom), because a restart drops all audio for a second or two.
+**Also**: step 3 (the e2e gate) fails at once with `Playwright's WebKit is not installed` when `~/Library/Caches/ms-playwright` has been emptied. Fix: `cd server && npx playwright install webkit` under the pinned Node. On macOS 26 it installs `webkit-2311`; #30's frozen build is for macOS 14 only.
+**Pattern**: `app/MeetingCopilot/Tests/MicEngineQueueTests.swift`, `server/e2e/harness.ts` (the WebKit check).
 
 ### 11. WKWebView Needs Health Polling Before Loading Localhost
 **Symptom**: Blank white panel on app launch
