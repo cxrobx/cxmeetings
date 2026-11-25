@@ -5,9 +5,9 @@ a live transcript, a coach, a running read on whether the meeting is on track,
 and research, summaries, analysis and mockups that it suggests and runs **only
 after you approve them**.
 
-![CXMeetings live dashboard with transcript, approval-gated research suggestions, running analysis, summary, and agenda](docs/media/meeting-copilot-dashboard.png)
+![CXMeetings live workspace showing transcript streaming, an approval-gated research suggestion, instant p95 latency result, and agenda checkoff](docs/media/cxmeetings-demo.gif)
 
-<sub>Dashboard UI preview with illustrative meeting data.</sub>
+<sub>Interactive UI demo with illustrative meeting data.</sub>
 
 ## How it works
 
